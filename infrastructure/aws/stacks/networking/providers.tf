@@ -1,0 +1,27 @@
+terraform {
+  required_version = ">= 1.13"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.region
+
+  # Dynamic assume_role block for cross-account access
+  # Will use assume_role_arn variable if set
+  dynamic "assume_role" {
+    for_each = length(try(var.assume_role_arn, "")) > 0 ? [1] : []
+    content {
+      role_arn = var.assume_role_arn
+    }
+  }
+
+  default_tags {
+    tags = local.common_tags
+  }
+}

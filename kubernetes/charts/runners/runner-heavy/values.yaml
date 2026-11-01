@@ -1,0 +1,95 @@
+# =============================================================================
+# ARC Runner Scale Set - Heavy Runners
+# =============================================================================
+# Helm chart: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+#
+# Heavy runners for:
+# - Docker image builds
+# - Multi-service integration tests
+# - Resource-intensive builds
+#
+# Node pool: runners-heavy (e2-standard-8: 8 vCPU, 32GB RAM, Spot)
+#
+# Custom runner image: gameplatform-runner
+# - Node.js 20, Go 1.22, Python 3.11
+# - Docker CLI, gcloud, kubectl, helm
+# - Pre-cached npm dependencies for lobby and lobby-backend
+# =============================================================================
+
+gha-runner-scale-set:
+  # Controller service account (required for ArgoCD helm template)
+  controllerServiceAccount:
+    name: arc-gha-rs-controller
+    namespace: arc-systems
+
+  # GitHub configuration
+  githubConfigUrl: "https://github.com/example-gamedev-org"
+
+  # Runner scale set name - used in workflow: runs-on: gameplatform-heavy
+  runnerScaleSetName: "gameplatform-heavy"
+
+  # Scaling configuration
+  minRunners: 1
+  maxRunners: 10
+
+  # GitHub authentication - references secret created by ExternalSecret
+  githubConfigSecret: arc-github-secret
+
+  # Container mode - Docker-in-Docker for building images
+  containerMode:
+    type: "dind"
+
+  # Pod template spec
+  template:
+    spec:
+      # Node selector - run on heavy runner nodes only
+      nodeSelector:
+        runner_type: heavy
+
+      # Tolerations - allow scheduling on tainted runner nodes
+      tolerations:
+        - key: runner-type
+          value: heavy
+          effect: NoSchedule
+
+      # Custom runner container with pre-installed tools and cached dependencies
+      containers:
+        - name: runner
+          image: us-east1-docker.pkg.dev/project-nonprod-env/gameplatform-nonprod-images/gameplatform-runner:latest
+          imagePullPolicy: Always
+          command: ["/home/runner/run.sh"]
+          env:
+            - name: NPM_CACHE_DIR
+              value: "/cache/npm"
+            - name: GOMODCACHE
+              value: "/home/runner/go/pkg/mod"
+            - name: GOCACHE
+              value: "/home/runner/.cache/go-build"
+            - name: PIP_CACHE_DIR
+              value: "/home/runner/.cache/pip"
+          resources:
+            limits:
+              cpu: "7000m"
+              memory: "28Gi"
+            requests:
+              cpu: "2000m"
+              memory: "8Gi"
+          volumeMounts:
+            - name: work
+              mountPath: /home/runner/_work
+
+  # Listener pod (receives webhooks from controller)
+  # Runs on infra pool (no taints)
+  listenerTemplate:
+    spec:
+      nodeSelector:
+        node_pool: infra
+      containers:
+        - name: listener
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi

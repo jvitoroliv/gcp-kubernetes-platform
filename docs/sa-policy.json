@@ -1,0 +1,16 @@
+{
+  "bindings": [
+    {
+      "role": "roles/iam.workloadIdentityUser",
+      "members": [
+        "principal://projects/000000000000/locations/global/workloadIdentityPools/gameplatform-nonprod-gh-pool-v2/providers/github-oidc/*"
+      ],
+      "condition": {
+        "title": "github-org-access",
+        "expression": "assertion.repository_owner == 'example-gamedev-org'"
+      }
+    }
+  ],
+  "etag": "ACAB", 
+  "version": 3
+}

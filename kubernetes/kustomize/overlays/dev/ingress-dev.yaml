@@ -1,0 +1,82 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gameplatform-ingress
+  namespace: gameplatform-dev
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "project-dev-ip"
+    networking.gke.io/managed-certificates: "project-dev-cert"
+    kubernetes.io/ingress.allow-http: "false"
+spec:
+  rules:
+  - host: nakama.dev.gameplatform
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: nakama
+            port:
+              number: 7350
+  - host: lobby.dev.gameplatform
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: lobby
+            port:
+              number: 3000
+  - host: lobby-backend.dev.gameplatform
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: lobby-backend
+            port:
+              number: 3001
+  - host: afs.dev.gameplatform
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: afs
+            port:
+              number: 8080
+  - host: ahsat.dev.gameplatform
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: ahsat
+            port:
+              number: 8080
+  - host: aes.dev.gameplatform
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: aes
+            port:
+              number: 1988
+  - host: ais.dev.gameplatform
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: ais
+            port:
+              number: 5050

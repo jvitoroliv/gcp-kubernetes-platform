@@ -1,0 +1,34 @@
+promtail:
+  config:
+    clients:
+      - url: http://monitoring-loki-dev.monitoring.svc.cluster.local:3100/loki/api/v1/push
+
+    snippets:
+      pipelineStages:
+        - cri: {}
+        - json:
+            expressions:
+              level: level
+              message: message
+              timestamp: time
+        - labels:
+            level:
+        - timestamp:
+            source: timestamp
+            format: RFC3339Nano
+
+  # DaemonSet - runs on every node
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  # Allow running on tainted nodes so all logs are collected
+  tolerations:
+    - effect: NoSchedule
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists

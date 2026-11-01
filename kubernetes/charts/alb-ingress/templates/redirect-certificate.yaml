@@ -1,0 +1,16 @@
+{{- /*
+Google-managed SSL Certificate for apex domain redirect
+Separate certificate to avoid affecting existing services during validation
+*/ -}}
+{{- if .Values.redirect }}
+{{- if .Values.redirect.enabled }}
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ .Values.redirect.certificateName }}
+  namespace: {{ .Values.namespace }}
+spec:
+  domains:
+    - {{ .Values.redirect.fromDomain }}
+{{- end }}
+{{- end }}

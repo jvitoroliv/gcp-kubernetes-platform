@@ -1,0 +1,44 @@
+tempo:
+  tempo:
+    storage:
+      trace:
+        backend: gcs
+        gcs:
+          # Overridden per environment
+          bucket_name: PLACEHOLDER
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      jaeger:
+        protocols:
+          thrift_http:
+            endpoint: 0.0.0.0:14268
+          grpc:
+            endpoint: 0.0.0.0:14250
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Persistence for WAL (Write-Ahead Log)
+  persistence:
+    enabled: true
+    size: 5Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Service account with Workload Identity annotation
+  # Name must match the Workload Identity binding created by Terraform: [monitoring/tempo]
+  serviceAccount:
+    name: tempo
+    annotations:
+      # Overridden per environment
+      iam.gke.io/gcp-service-account: PLACEHOLDER

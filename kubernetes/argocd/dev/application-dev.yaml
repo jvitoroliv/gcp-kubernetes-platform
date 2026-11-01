@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: game-platform-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/example-gamedev-org/platform-kubernetes-infrastructure.git
+    targetRevision: main
+    path: charts/game-platform
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+  destination:
+    # Remote cluster - ArgoCD runs on nonprod-runners, deploys to dev-workloads
+    # Register cluster first: argocd cluster add gke_project-nonprod-env_us-east1_project-dev-workloads
+    name: project-dev-workloads
+    namespace: gameplatform-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

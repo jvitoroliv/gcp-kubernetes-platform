@@ -1,0 +1,58 @@
+{{- /*
+GKE Ingress for Application Load Balancer
+Uses the "gce" ingress class for external Application LB with hostname-based routing
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gameplatform-alb-ingress
+  namespace: {{ .Values.namespace }}
+  annotations:
+    # Use GKE Application Load Balancer
+    kubernetes.io/ingress.class: "gce"
+    # Static IP created by Terraform
+    kubernetes.io/ingress.global-static-ip-name: {{ .Values.staticIpName }}
+    # Google-managed SSL certificates (main + redirect if enabled)
+    {{- if and .Values.redirect .Values.redirect.enabled }}
+    networking.gke.io/managed-certificates: {{ .Values.sslCertificateName }},{{ .Values.redirect.certificateName }}
+    {{- else }}
+    networking.gke.io/managed-certificates: {{ .Values.sslCertificateName }}
+    {{- end }}
+    # Allow HTTP for certificate validation (Google ManagedCertificate requires HTTP-01 challenge)
+    kubernetes.io/ingress.allow-http: "true"
+    # FrontendConfig for HTTP to HTTPS redirect
+    networking.gke.io/v1beta1.FrontendConfig: gameplatform-alb-frontend-config
+spec:
+  # Default backend for unmatched requests
+  defaultBackend:
+    service:
+      name: {{ (index .Values.services .Values.defaultBackend).serviceName | default (printf "%s-%s" .Values.servicePrefix .Values.defaultBackend) }}
+      port:
+        number: {{ (index .Values.services .Values.defaultBackend).port }}
+  rules:
+    {{- range $name, $svc := .Values.services }}
+    # {{ $name }} service
+    - host: {{ $svc.hostname }}.{{ $.Values.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svc.serviceName | default (printf "%s-%s" $.Values.servicePrefix $name) }}
+                port:
+                  number: {{ $svc.port }}
+    {{- end }}
+    {{- if and .Values.redirect .Values.redirect.enabled }}
+    # Apex domain redirect to www
+    - host: {{ .Values.redirect.fromDomain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: redirect-service
+                port:
+                  number: 80
+    {{- end }}

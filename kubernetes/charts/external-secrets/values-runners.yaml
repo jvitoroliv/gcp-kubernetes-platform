@@ -1,0 +1,33 @@
+# =============================================================================
+# External Secrets Operator - Runners Cluster
+# =============================================================================
+# For: nonprod-runners cluster (nonprod project)
+# =============================================================================
+
+# Service account with Workload Identity
+# NOTE: Uses project-dev-eso-runners SA created by dev/06-workloads stack
+# The runners cluster is in nonprod but uses dev ESO SA for Secret Manager access
+serviceAccount:
+  create: true
+  name: external-secrets
+  annotations:
+    iam.gke.io/gcp-service-account: project-dev-eso-runners@project-nonprod-env.iam.gserviceaccount.com
+
+# No tolerations needed - infra-pool has NO taints
+# tolerations: []
+
+# Node selector to run on infra-pool (no taints, always available)
+nodeSelector:
+  node_pool: infra
+
+# Webhook configuration
+webhook:
+  # No tolerations needed
+  nodeSelector:
+    node_pool: infra
+
+# Cert controller configuration
+certController:
+  # No tolerations needed
+  nodeSelector:
+    node_pool: infra

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: ephemeral-postgres
+description: PostgreSQL pod for ephemeral environments with dump restore from GCS
+type: application
+version: 1.0.0
+appVersion: "15"
+
+keywords:
+  - postgresql
+  - database
+  - ephemeral
+
+maintainers:
+  - name: GamePlatform Team

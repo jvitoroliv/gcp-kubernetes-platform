@@ -1,0 +1,19 @@
+opentelemetry-collector:
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  config:
+    exporters:
+      otlp/tempo:
+        endpoint: http://monitoring-tempo-dev.monitoring.svc.cluster.local:4317
+        tls:
+          insecure: true
+      loki:
+        endpoint: http://monitoring-loki-dev.monitoring.svc.cluster.local:3100/loki/api/v1/push

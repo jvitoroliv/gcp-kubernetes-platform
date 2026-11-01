@@ -1,0 +1,13 @@
+# =============================================================================
+# External Secrets Operator - Workloads Cluster
+# =============================================================================
+# For: dev-workloads, stg-workloads clusters (nonprod project)
+# =============================================================================
+
+# Service account with Workload Identity
+# NOTE: Service account is in project-nonprod-env project (shared for dev+stg)
+serviceAccount:
+  create: true
+  name: external-secrets
+  annotations:
+    iam.gke.io/gcp-service-account: gameplatform-nonprod-eso-workloads@project-nonprod-env.iam.gserviceaccount.com

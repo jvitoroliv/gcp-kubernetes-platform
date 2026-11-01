@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - application-dev.yaml
+  - reloader.yaml
+  - ingress-nginx.yaml
+  - cert-manager.yaml
+  - alb-ingress.yaml
+  # gateway.yaml removed - replaced by alb-ingress (AWS ALB equivalent)
+  - monitoring-prometheus.yaml
+  - monitoring-loki.yaml
+  - monitoring-promtail.yaml
+  - monitoring-tempo.yaml
+  - monitoring-otel-collector.yaml

@@ -1,0 +1,27 @@
+# Terraform work dirs & states
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+crash.log
+
+# Human-readable plan outputs
+plan-output.txt
+plan-output.json
+
+# Local var files (ignore only sensitive/local files)
+*.auto.tfvars
+*.auto.tfvars.json
+**/secrets.tfvars
+**/local.tfvars
+terraform.tfvars.backup
+
+# Allow environment configuration files
+!environments/**/*.tfvars
+!**/*.example.tfvars
+
+# macOS
+.DS_Store
+
+# workflow results
+**/terraform-dns-and-alb-dev-plan/

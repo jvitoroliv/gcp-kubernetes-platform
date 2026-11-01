@@ -1,0 +1,47 @@
+# Production values - External Load Balancer with static regional IP
+ingress-nginx:
+  # TCP passthrough for services that need direct port access (WebSocket, gRPC, etc.)
+  # Format: "external_port": "namespace/service:port"
+  tcp:
+    7350: "gameplatform-prd/game-platform-prd-nakama:7350"    # Nakama HTTP/WebSocket
+    7349: "gameplatform-prd/game-platform-prd-nakama:7349"    # Nakama gRPC
+    7351: "gameplatform-prd/game-platform-prd-nakama:7351"    # Nakama Console
+    9933: "gameplatform-prd/game-platform-prd-afs:9933"       # AFS
+    6969: "gameplatform-prd/game-platform-prd-ahsat:6969"     # AHSAT
+    1988: "gameplatform-prd/game-platform-prd-aes:1988"       # AES
+    5050: "gameplatform-prd/game-platform-prd-ais:5050"       # AIS
+    4444: "gameplatform-prd/game-platform-prd-aps:4444"       # APS
+    3001: "gameplatform-prd/game-platform-prd-lobby-backend:3001"  # Lobby Backend
+  controller:
+    # Extra args for TCP/UDP services and SSL passthrough
+    extraArgs:
+      enable-ssl-passthrough: "true"
+    service:
+      type: LoadBalancer
+      # Static regional IP managed by Terraform (05-dns-lb stack)
+      loadBalancerIP: "34.39.225.212"
+      annotations:
+        # External Load Balancer for public access - overrides Internal from values.yaml
+        cloud.google.com/load-balancer-type: "External"
+        networking.gke.io/load-balancer-type: "External"
+      externalTrafficPolicy: Local
+      # Expose TCP ports on the LoadBalancer
+      # These ports will be opened on the external IP 34.39.225.212
+      enableHttp: true
+      enableHttps: true
+    ingressClassResource:
+      name: nginx
+      default: true
+    watchIngressWithoutClass: true
+    # Enable Cross-Origin-Resource-Policy header for all responses
+    # Required for Godot HTML5 client which uses SharedArrayBuffer (COEP: require-corp)
+    addHeaders:
+      Cross-Origin-Resource-Policy: "cross-origin"
+    # Production resource allocation
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi

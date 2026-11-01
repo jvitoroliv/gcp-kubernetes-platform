@@ -1,0 +1,10 @@
+tempo:
+  tempo:
+    storage:
+      trace:
+        gcs:
+          bucket_name: project-stg-tempo-traces
+
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: project-stg-tempo@project-nonprod-env.iam.gserviceaccount.com

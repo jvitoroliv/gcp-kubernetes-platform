@@ -1,0 +1,40 @@
+# =============================================================================
+# ARC Controller - gha-runner-scale-set-controller
+# =============================================================================
+# Helm chart: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+#
+# This controller manages GitHub Actions runner scale sets.
+# Runs on infra node pool (always available, no taints).
+# =============================================================================
+
+# Controller replica count
+replicaCount: 1
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: arc-gha-rs-controller
+
+# Node selector - run on infra node pool (no taints)
+nodeSelector:
+  node_pool: infra
+
+# No tolerations needed - infra pool has no taints
+
+# Resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Logging
+logLevel: info
+
+# Metrics (optional - for Prometheus)
+metrics:
+  controllerManagerAddr: ":8080"
+  listenerAddr: ":8080"
+  listenerEndpoint: "/metrics"

@@ -1,0 +1,42 @@
+# =============================================================================
+# ARC Runner Scale Set - Heavy Runners (PRD)
+# =============================================================================
+# PRD-specific overrides for runner-heavy
+# Uses PRD Artifact Registry for runner image
+# =============================================================================
+
+gha-runner-scale-set:
+  # Runner scale set name - PRD specific to avoid conflicts
+  runnerScaleSetName: "gameplatform-heavy-prd"
+
+  # Scaling configuration - same as nonprod
+  minRunners: 1
+  maxRunners: 10
+
+  # Pod template spec with PRD image
+  template:
+    spec:
+      containers:
+        - name: runner
+          image: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images/gameplatform-runner:1.0.0
+          imagePullPolicy: Always
+          command: ["/home/runner/run.sh"]
+          env:
+            - name: NPM_CACHE_DIR
+              value: "/cache/npm"
+            - name: GOMODCACHE
+              value: "/home/runner/go/pkg/mod"
+            - name: GOCACHE
+              value: "/home/runner/.cache/go-build"
+            - name: PIP_CACHE_DIR
+              value: "/home/runner/.cache/pip"
+          resources:
+            limits:
+              cpu: "7000m"
+              memory: "28Gi"
+            requests:
+              cpu: "2000m"
+              memory: "8Gi"
+          volumeMounts:
+            - name: work
+              mountPath: /home/runner/_work

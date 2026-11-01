@@ -1,0 +1,1385 @@
+name: "Build and Push Container Images"
+
+on:
+  workflow_call:
+    inputs:
+      applications:
+        description: "Applications to build (comma-separated: server,lobby,lobby-backend,nakama,afs,ahsat,aes,ais,all)"
+        required: false
+        type: string
+        default: "all"
+      environment:
+        description: "Environment for the build (dev, stg, live)"
+        required: false
+        type: string
+        default: "dev"
+      ecr_push:
+        description: "Push images to ECR"
+        required: false
+        type: boolean
+        default: true
+      image_tag:
+        description: "Image tag (defaults to commit SHA)"
+        required: false
+        type: string
+        default: ""
+
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      LIVE_AWS_ACCESS_KEY_ID:
+        required: false
+      LIVE_AWS_SECRET_ACCESS_KEY:
+        required: false
+
+    outputs:
+      server_image:
+        description: "Server images pushed to ECR"
+        value: ${{ jobs.build.outputs.server_image }}
+      lobby_image:
+        description: "Lobby image pushed to ECR"
+        value: ${{ jobs.build.outputs.lobby_image }}
+      lobby_backend_image:
+        description: "Lobby Backend image pushed to ECR"
+        value: ${{ jobs.build.outputs.lobby_backend_image }}
+      nakama_image:
+        description: "Nakama image pushed to ECR"
+        value: ${{ jobs.build.outputs.nakama_image }}
+      afs_image:
+        description: "AFS image pushed to ECR"
+        value: ${{ jobs.build.outputs.afs_image }}
+      ahsat_image:
+        description: "AHSAT image pushed to ECR"
+        value: ${{ jobs.build.outputs.ahsat_image }}
+      aes_image:
+        description: "AES image pushed to ECR"
+        value: ${{ jobs.build.outputs.aes_image }}
+      ais_image:
+        description: "AIS image pushed to ECR"
+        value: ${{ jobs.build.outputs.ais_image }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: "Build and Push Images"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    outputs:
+      server_image: ${{ steps.build-summary.outputs.server_image }}
+      lobby_image: ${{ steps.build-summary.outputs.lobby_image }}
+      lobby_backend_image: ${{ steps.build-summary.outputs.lobby_backend_image }}
+      nakama_image: ${{ steps.build-summary.outputs.nakama_image }}
+      afs_image: ${{ steps.build-summary.outputs.afs_image }}
+      ahsat_image: ${{ steps.build-summary.outputs.ahsat_image }}
+      aes_image: ${{ steps.build-summary.outputs.aes_image }}
+      ais_image: ${{ steps.build-summary.outputs.ais_image }}
+
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            applications/server
+            applications/lobby
+            applications/lobby-backend
+
+      - name: "Determine Applications and Image Tag"
+        id: determine-build
+        run: |
+          echo "DEBUG: inputs.applications = '${{ inputs.applications }}'"
+          echo "DEBUG: github.event_name = '${{ github.event_name }}'"
+          
+          APPS="${{ inputs.applications }}"
+          if [[ "$APPS" == "all" ]]; then
+            APPS="nakama,afs,ahsat,aes,ais,lobby,lobby-backend"  # All individual services for parallel builds
+          elif [[ "$APPS" == "server" ]]; then
+            APPS="nakama,afs,ahsat,aes,ais"  # Expand server to individual services (excluding lobby/lobby-backend)
+          fi
+          
+          # Always ensure lobby is included for push events to main branches
+          if [[ "${{ github.event_name }}" == "push" ]] && [[ ! ",$APPS," =~ ,lobby, ]]; then
+            if [[ "${{ inputs.applications }}" == "server" ]]; then
+              APPS="nakama,afs,ahsat,aes,lobby"
+              echo "🔄 Push event detected: adding lobby to server build"
+            fi
+          fi
+          
+          # Generate smart ECR tag
+          if [[ -n "${{ inputs.image_tag }}" ]]; then
+            IMAGE_TAG="${{ inputs.image_tag }}"
+          else
+            ENV="${{ inputs.environment }}"
+            
+            # Determine if it's a PR or not
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              # Format: ENV-pullN-ID
+              PR_NUMBER="${{ github.event.pull_request.number }}"
+              BASE_TAG="$ENV-pull$PR_NUMBER"
+            else
+              # Format: ENV-COMMIT-ID (short SHA)
+              SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+              BASE_TAG="$ENV-$SHORT_SHA"
+            fi
+            
+            # Generate random hash for unique tagging
+            RANDOM_HASH=$(date +%s | sha256sum | cut -c1-8)
+            IMAGE_TAG="$BASE_TAG-$RANDOM_HASH"
+          fi
+          
+          echo "applications=$APPS" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "Building applications: $APPS"
+          echo "Smart ECR tag: $IMAGE_TAG"
+
+      - name: "Configure AWS Credentials"
+        if: inputs.ecr_push
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.environment == 'live' && 'sa-east-1' || 'us-east-1' }}
+
+      - name: "Login to Amazon ECR"
+        if: inputs.ecr_push
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: "Setup Docker Buildx"
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          install: true
+          driver-opts: network=host
+
+      # ===== SETUP FOR PARALLEL BUILDS =====
+      - name: "Setup Node.js"
+        if: contains(steps.determine-build.outputs.applications, 'lobby')
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'applications/lobby/package.json'
+
+      - name: "Build Applications in Parallel"
+        id: build-parallel
+        run: |
+          echo "Starting parallel builds for selected applications..."
+          
+          ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE_TAG="${{ steps.determine-build.outputs.image_tag }}"
+          ENV="${{ inputs.environment }}"
+          APPS="${{ steps.determine-build.outputs.applications }}"
+          
+          # Initialize outputs
+          SERVER_IMAGES=""
+          LOBBY_IMAGE=""
+          LOBBY_BACKEND_IMAGE=""
+          NAKAMA_IMAGE=""
+          AFS_IMAGE=""
+          AHSAT_IMAGE=""
+          AES_IMAGE=""
+          AIS_IMAGE=""
+          SERVER_STATUS="skipped"
+          LOBBY_STATUS="skipped"
+          LOBBY_BACKEND_STATUS="skipped"
+          NAKAMA_STATUS="skipped"
+          AFS_STATUS="skipped"
+          AHSAT_STATUS="skipped"
+          AES_STATUS="skipped"
+          AIS_STATUS="skipped"
+
+          # Note: build_server function removed - now using individual service builds for true parallelism
+          
+          # Function to build lobby
+          build_lobby() {
+            echo "Building lobby application..." >&2
+            (
+              cd applications/lobby
+            
+            # Install dependencies and build
+            npm ci --prefer-offline --no-audit --no-fund
+            npm run build
+            
+            # Create Dockerfile if needed
+            if [[ ! -f "Dockerfile" ]]; then
+              cat > Dockerfile << 'EOF'
+          FROM node:20-alpine AS base
+          
+          FROM base AS deps
+          RUN apk add --no-cache libc6-compat
+          WORKDIR /app
+          
+          COPY package.json package-lock.json* ./
+          RUN npm ci --only=production
+          
+          FROM base AS builder
+          WORKDIR /app
+          COPY --from=deps /app/node_modules ./node_modules
+          COPY . .
+          
+          RUN npm run build
+          
+          FROM base AS runner
+          WORKDIR /app
+          
+          ENV NODE_ENV=production
+          
+          RUN addgroup --system --gid 1001 nodejs
+          RUN adduser --system --uid 1001 nextjs
+          
+          COPY --from=builder /app/public ./public
+          
+          COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+          COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+          
+          USER nextjs
+          
+          EXPOSE 3000
+          
+          ENV PORT=3000
+          
+          CMD ["node", "server.js"]
+          EOF
+            fi
+            
+            # Build Docker image (build only, no push yet)
+            local lobby_image=""
+            if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+              lobby_image="$ECR_REGISTRY/gameplatform-lobby:$IMAGE_TAG"
+
+              # Build only - no push yet
+              set +e
+              docker buildx build \
+                --cache-from type=local,src=/tmp/.buildx-cache-lobby \
+                --cache-to type=local,dest=/tmp/.buildx-cache-lobby,mode=max \
+                --load \
+                -t $lobby_image \
+                . > "$GITHUB_WORKSPACE/lobby_error.log" 2>&1
+              DOCKER_EXIT_CODE=$?
+              set -e
+
+              if [[ $DOCKER_EXIT_CODE -eq 0 ]]; then
+                echo "$lobby_image" > "$GITHUB_WORKSPACE/lobby_image.txt"
+                echo "success" > "$GITHUB_WORKSPACE/lobby_status.txt"
+              else
+                echo "" > "$GITHUB_WORKSPACE/lobby_image.txt"
+                echo "failed" > "$GITHUB_WORKSPACE/lobby_status.txt"
+                echo "LOBBY_BUILD_ERROR: Docker exit code $DOCKER_EXIT_CODE" >> "$GITHUB_WORKSPACE/lobby_error.log"
+              fi
+            else
+              docker buildx build \
+                --load \
+                -t lobby:local \
+                .
+              echo "" > "$GITHUB_WORKSPACE/lobby_image.txt"
+              echo "success" > "$GITHUB_WORKSPACE/lobby_status.txt"
+            fi
+            )
+          }
+          
+          # Build lobby-backend function
+          build_lobby_backend() {
+            echo "Building lobby-backend application..." >&2
+            (
+            cd applications/lobby-backend
+            
+            # Build
+            local lobby_backend_image=""
+            if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+              lobby_backend_image="$ECR_REGISTRY/gameplatform-lobby-backend:$IMAGE_TAG"
+
+              # Capture exit code properly
+              set +e
+              docker buildx build \
+                --cache-from type=local,src=/tmp/.buildx-cache-lobby-backend \
+                --cache-to type=local,dest=/tmp/.buildx-cache-lobby-backend,mode=max \
+                --load \
+                -t $lobby_backend_image \
+                . > "$GITHUB_WORKSPACE/lobby_backend_error.log" 2>&1
+              DOCKER_EXIT_CODE=$?
+              set -e
+
+              if [[ $DOCKER_EXIT_CODE -eq 0 ]]; then
+                echo "$lobby_backend_image" > "$GITHUB_WORKSPACE/lobby_backend_image.txt"
+                echo "success" > "$GITHUB_WORKSPACE/lobby_backend_status.txt"
+              else
+                echo "" > "$GITHUB_WORKSPACE/lobby_backend_image.txt"
+                echo "failed" > "$GITHUB_WORKSPACE/lobby_backend_status.txt"
+                echo "LOBBY_BACKEND_BUILD_ERROR: Docker exit code $DOCKER_EXIT_CODE" >> "$GITHUB_WORKSPACE/lobby_backend_error.log"
+              fi
+            else
+              docker buildx build \
+                --load \
+                -t lobby-backend:local \
+                .
+              echo "" > "$GITHUB_WORKSPACE/lobby_backend_image.txt"
+              echo "success" > "$GITHUB_WORKSPACE/lobby_backend_status.txt"
+            fi
+            )
+          }
+
+          # Individual service build functions
+          build_nakama() {
+            echo "Building nakama service..." >&2
+            (
+              cd applications/server
+              local nakama_image=""
+              if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+                nakama_image="$ECR_REGISTRY/gameplatform-nakama:$IMAGE_TAG"
+
+                set +e
+                docker buildx build \
+                  --cache-from type=local,src=/tmp/.buildx-cache-nakama \
+                  --cache-to type=local,dest=/tmp/.buildx-cache-nakama,mode=max \
+                  --load \
+                  -t $nakama_image \
+                  ./nakama/ > "$GITHUB_WORKSPACE/nakama_error.log" 2>&1
+                DOCKER_EXIT_CODE=$?
+                set -e
+
+                if [[ $DOCKER_EXIT_CODE -eq 0 ]]; then
+                  echo "$nakama_image" > "$GITHUB_WORKSPACE/nakama_image.txt"
+                  echo "success" > "$GITHUB_WORKSPACE/nakama_status.txt"
+                else
+                  echo "" > "$GITHUB_WORKSPACE/nakama_image.txt"
+                  echo "failed" > "$GITHUB_WORKSPACE/nakama_status.txt"
+                  echo "NAKAMA_BUILD_ERROR: Docker exit code $DOCKER_EXIT_CODE" >> "$GITHUB_WORKSPACE/nakama_error.log"
+                fi
+              else
+                docker buildx build \
+                  --load \
+                  -t nakama:local \
+                  ./nakama/
+                echo "" > "$GITHUB_WORKSPACE/nakama_image.txt"
+                echo "success" > "$GITHUB_WORKSPACE/nakama_status.txt"
+              fi
+            )
+          }
+
+          build_afs() {
+            echo "Building afs service..." >&2
+            (
+              cd applications/server
+              local afs_image=""
+              if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+                afs_image="$ECR_REGISTRY/gameplatform-afs:$IMAGE_TAG"
+
+                set +e
+                docker buildx build \
+                  --cache-from type=local,src=/tmp/.buildx-cache-afs \
+                  --cache-to type=local,dest=/tmp/.buildx-cache-afs,mode=max \
+                  --load \
+                  -t $afs_image \
+                  ./afs/ > "$GITHUB_WORKSPACE/afs_error.log" 2>&1
+                DOCKER_EXIT_CODE=$?
+                set -e
+
+                if [[ $DOCKER_EXIT_CODE -eq 0 ]]; then
+                  echo "$afs_image" > "$GITHUB_WORKSPACE/afs_image.txt"
+                  echo "success" > "$GITHUB_WORKSPACE/afs_status.txt"
+                else
+                  echo "" > "$GITHUB_WORKSPACE/afs_image.txt"
+                  echo "failed" > "$GITHUB_WORKSPACE/afs_status.txt"
+                  echo "AFS_BUILD_ERROR: Docker exit code $DOCKER_EXIT_CODE" >> "$GITHUB_WORKSPACE/afs_error.log"
+                fi
+              else
+                docker buildx build \
+                  --load \
+                  -t afs:local \
+                  ./afs/
+                echo "" > "$GITHUB_WORKSPACE/afs_image.txt"
+                echo "success" > "$GITHUB_WORKSPACE/afs_status.txt"
+              fi
+            )
+          }
+
+          build_ahsat() {
+            echo "Building ahsat service..." >&2
+            (
+              cd applications/server
+              local ahsat_image=""
+              if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+                ahsat_image="$ECR_REGISTRY/gameplatform-ahsat:$IMAGE_TAG"
+
+                set +e
+                docker buildx build \
+                  --cache-from type=local,src=/tmp/.buildx-cache-ahsat \
+                  --cache-to type=local,dest=/tmp/.buildx-cache-ahsat,mode=max \
+                  --load \
+                  -t $ahsat_image \
+                  ./AHSAT/ > "$GITHUB_WORKSPACE/ahsat_error.log" 2>&1
+                DOCKER_EXIT_CODE=$?
+                set -e
+
+                if [[ $DOCKER_EXIT_CODE -eq 0 ]]; then
+                  echo "$ahsat_image" > "$GITHUB_WORKSPACE/ahsat_image.txt"
+                  echo "success" > "$GITHUB_WORKSPACE/ahsat_status.txt"
+                else
+                  echo "" > "$GITHUB_WORKSPACE/ahsat_image.txt"
+                  echo "failed" > "$GITHUB_WORKSPACE/ahsat_status.txt"
+                  echo "AHSAT_BUILD_ERROR: Docker exit code $DOCKER_EXIT_CODE" >> "$GITHUB_WORKSPACE/ahsat_error.log"
+                fi
+              else
+                docker buildx build \
+                  --load \
+                  -t ahsat:local \
+                  ./AHSAT/
+                echo "" > "$GITHUB_WORKSPACE/ahsat_image.txt"
+                echo "success" > "$GITHUB_WORKSPACE/ahsat_status.txt"
+              fi
+            )
+          }
+
+          build_aes() {
+            echo "Building aes service..." >&2
+            (
+              cd applications/server
+              local aes_image=""
+              if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+                aes_image="$ECR_REGISTRY/gameplatform-aes:$IMAGE_TAG"
+
+                set +e
+                docker buildx build \
+                  --cache-from type=local,src=/tmp/.buildx-cache-aes \
+                  --cache-to type=local,dest=/tmp/.buildx-cache-aes,mode=max \
+                  --load \
+                  -t $aes_image \
+                  ./aes/ > "$GITHUB_WORKSPACE/aes_error.log" 2>&1
+                DOCKER_EXIT_CODE=$?
+                set -e
+
+                if [[ $DOCKER_EXIT_CODE -eq 0 ]]; then
+                  echo "$aes_image" > "$GITHUB_WORKSPACE/aes_image.txt"
+                  echo "success" > "$GITHUB_WORKSPACE/aes_status.txt"
+                else
+                  echo "" > "$GITHUB_WORKSPACE/aes_image.txt"
+                  echo "failed" > "$GITHUB_WORKSPACE/aes_status.txt"
+                  echo "AES_BUILD_ERROR: Docker exit code $DOCKER_EXIT_CODE" >> "$GITHUB_WORKSPACE/aes_error.log"
+                fi
+              else
+                docker buildx build \
+                  --load \
+                  -t aes:local \
+                  ./aes/
+                echo "" > "$GITHUB_WORKSPACE/aes_image.txt"
+                echo "success" > "$GITHUB_WORKSPACE/aes_status.txt"
+              fi
+            )
+          }
+
+          build_ais() {
+            echo "Building ais service..." >&2
+            (
+              cd applications/server
+              local ais_image=""
+              if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+                ais_image="$ECR_REGISTRY/gameplatform-ais:$IMAGE_TAG"
+
+                set +e
+                docker buildx build \
+                  --cache-from type=local,src=/tmp/.buildx-cache-ais \
+                  --cache-to type=local,dest=/tmp/.buildx-cache-ais,mode=max \
+                  --load \
+                  -t $ais_image \
+                  ./ais/ > "$GITHUB_WORKSPACE/ais_error.log" 2>&1
+                DOCKER_EXIT_CODE=$?
+                set -e
+
+                if [[ $DOCKER_EXIT_CODE -eq 0 ]]; then
+                  echo "$ais_image" > "$GITHUB_WORKSPACE/ais_image.txt"
+                  echo "success" > "$GITHUB_WORKSPACE/ais_status.txt"
+                else
+                  echo "" > "$GITHUB_WORKSPACE/ais_image.txt"
+                  echo "failed" > "$GITHUB_WORKSPACE/ais_status.txt"
+                  echo "AIS_BUILD_ERROR: Docker exit code $DOCKER_EXIT_CODE" >> "$GITHUB_WORKSPACE/ais_error.log"
+                fi
+              else
+                docker buildx build \
+                  --load \
+                  -t ais:local \
+                  ./ais/
+                echo "" > "$GITHUB_WORKSPACE/ais_image.txt"
+                echo "success" > "$GITHUB_WORKSPACE/ais_status.txt"
+              fi
+            )
+          }
+
+          # Start builds in parallel - using exact matches to avoid substring collisions
+          # Note: 'server' option now expands to individual services for true parallelism
+
+          if [[ ",$APPS," =~ ,lobby-backend, ]]; then
+            build_lobby_backend &
+            LOBBY_BACKEND_BUILD_PID=$!
+          fi
+
+          # Check for exact 'lobby' match (not lobby-backend)
+          if [[ ",$APPS," =~ ,lobby, ]]; then
+            build_lobby &
+            LOBBY_BUILD_PID=$!
+          fi
+
+          # Individual service builds
+          if [[ ",$APPS," =~ ,nakama, ]]; then
+            build_nakama &
+            NAKAMA_BUILD_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,afs, ]]; then
+            build_afs &
+            AFS_BUILD_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,ahsat, ]]; then
+            build_ahsat &
+            AHSAT_BUILD_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,aes, ]]; then
+            build_aes &
+            AES_BUILD_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,ais, ]]; then
+            build_ais &
+            AIS_BUILD_PID=$!
+          fi
+
+          # Debug before wait
+          echo "DEBUG: About to wait for builds..."
+          # SERVER_BUILD_PID removed - now using individual service builds
+          echo "DEBUG: LOBBY_BUILD_PID=${LOBBY_BUILD_PID:-'not set'}"
+          echo "DEBUG: LOBBY_BACKEND_BUILD_PID=${LOBBY_BACKEND_BUILD_PID:-'not set'}"
+          echo "DEBUG: NAKAMA_BUILD_PID=${NAKAMA_BUILD_PID:-'not set'}"
+          echo "DEBUG: AFS_BUILD_PID=${AFS_BUILD_PID:-'not set'}"
+          echo "DEBUG: AHSAT_BUILD_PID=${AHSAT_BUILD_PID:-'not set'}"
+          echo "DEBUG: AES_BUILD_PID=${AES_BUILD_PID:-'not set'}"
+          echo "DEBUG: AIS_BUILD_PID=${AIS_BUILD_PID:-'not set'}"
+
+          # Wait for individual server service builds and combine results
+          COMBINED_SERVER_IMAGES=""
+          SERVER_SERVICES_SUCCESS=0
+          SERVER_SERVICES_TOTAL=0
+          
+          if [[ -n "${LOBBY_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Waiting for lobby build..."
+            set +e
+            wait $LOBBY_BUILD_PID
+            LOBBY_WAIT_STATUS=$?
+            set -e
+            if [[ $LOBBY_WAIT_STATUS -eq 0 ]]; then
+              echo "DEBUG: Lobby build completed successfully"
+              LOBBY_IMAGE=$(cat "$GITHUB_WORKSPACE/lobby_image.txt" 2>/dev/null || echo "")
+              LOBBY_STATUS=$(cat "$GITHUB_WORKSPACE/lobby_status.txt" 2>/dev/null || echo "failed")
+              echo "DEBUG: Lobby image: $LOBBY_IMAGE"
+              echo "DEBUG: Lobby status: $LOBBY_STATUS"
+            else
+              echo "DEBUG: Lobby build failed"
+              LOBBY_STATUS="failed"
+            fi
+          else
+            echo "DEBUG: No lobby build to wait for"
+          fi
+          
+          if [[ -n "${LOBBY_BACKEND_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Waiting for lobby-backend build..."
+            set +e
+            wait $LOBBY_BACKEND_BUILD_PID
+            LOBBY_BACKEND_WAIT_STATUS=$?
+            set -e
+            if [[ $LOBBY_BACKEND_WAIT_STATUS -eq 0 ]]; then
+              echo "DEBUG: Lobby-backend build completed successfully"
+              LOBBY_BACKEND_IMAGE=$(cat "$GITHUB_WORKSPACE/lobby_backend_image.txt" 2>/dev/null || echo "")
+              LOBBY_BACKEND_STATUS=$(cat "$GITHUB_WORKSPACE/lobby_backend_status.txt" 2>/dev/null || echo "failed")
+              echo "DEBUG: Lobby-backend image: $LOBBY_BACKEND_IMAGE"
+              echo "DEBUG: Lobby-backend status: $LOBBY_BACKEND_STATUS"
+            else
+              echo "DEBUG: Lobby-backend build failed"
+              LOBBY_BACKEND_STATUS="failed"
+            fi
+          else
+            echo "DEBUG: No lobby-backend build to wait for"
+          fi
+
+          # Wait for individual service builds
+          if [[ -n "${NAKAMA_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Waiting for nakama build..."
+            set +e
+            wait $NAKAMA_BUILD_PID
+            NAKAMA_WAIT_STATUS=$?
+            set -e
+            if [[ $NAKAMA_WAIT_STATUS -eq 0 ]]; then
+              echo "DEBUG: Nakama build completed successfully"
+              NAKAMA_IMAGE=$(cat "$GITHUB_WORKSPACE/nakama_image.txt" 2>/dev/null || echo "")
+              NAKAMA_STATUS=$(cat "$GITHUB_WORKSPACE/nakama_status.txt" 2>/dev/null || echo "failed")
+              echo "DEBUG: Nakama image: $NAKAMA_IMAGE"
+              echo "DEBUG: Nakama status: $NAKAMA_STATUS"
+            else
+              echo "DEBUG: Nakama build failed"
+              NAKAMA_STATUS="failed"
+            fi
+          else
+            echo "DEBUG: No nakama build to wait for"
+          fi
+
+          if [[ -n "${AFS_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Waiting for afs build..."
+            set +e
+            wait $AFS_BUILD_PID
+            AFS_WAIT_STATUS=$?
+            set -e
+            if [[ $AFS_WAIT_STATUS -eq 0 ]]; then
+              echo "DEBUG: AFS build completed successfully"
+              AFS_IMAGE=$(cat "$GITHUB_WORKSPACE/afs_image.txt" 2>/dev/null || echo "")
+              AFS_STATUS=$(cat "$GITHUB_WORKSPACE/afs_status.txt" 2>/dev/null || echo "failed")
+              echo "DEBUG: AFS image: $AFS_IMAGE"
+              echo "DEBUG: AFS status: $AFS_STATUS"
+            else
+              echo "DEBUG: AFS build failed"
+              AFS_STATUS="failed"
+            fi
+          else
+            echo "DEBUG: No afs build to wait for"
+          fi
+
+          if [[ -n "${AHSAT_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Waiting for ahsat build..."
+            set +e
+            wait $AHSAT_BUILD_PID
+            AHSAT_WAIT_STATUS=$?
+            set -e
+            if [[ $AHSAT_WAIT_STATUS -eq 0 ]]; then
+              echo "DEBUG: AHSAT build completed successfully"
+              AHSAT_IMAGE=$(cat "$GITHUB_WORKSPACE/ahsat_image.txt" 2>/dev/null || echo "")
+              AHSAT_STATUS=$(cat "$GITHUB_WORKSPACE/ahsat_status.txt" 2>/dev/null || echo "failed")
+              echo "DEBUG: AHSAT image: $AHSAT_IMAGE"
+              echo "DEBUG: AHSAT status: $AHSAT_STATUS"
+            else
+              echo "DEBUG: AHSAT build failed"
+              AHSAT_STATUS="failed"
+            fi
+          else
+            echo "DEBUG: No ahsat build to wait for"
+          fi
+
+          if [[ -n "${AES_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Waiting for aes build..."
+            set +e
+            wait $AES_BUILD_PID
+            AES_WAIT_STATUS=$?
+            set -e
+            if [[ $AES_WAIT_STATUS -eq 0 ]]; then
+              echo "DEBUG: AES build completed successfully"
+              AES_IMAGE=$(cat "$GITHUB_WORKSPACE/aes_image.txt" 2>/dev/null || echo "")
+              AES_STATUS=$(cat "$GITHUB_WORKSPACE/aes_status.txt" 2>/dev/null || echo "failed")
+              echo "DEBUG: AES image: $AES_IMAGE"
+              echo "DEBUG: AES status: $AES_STATUS"
+            else
+              echo "DEBUG: AES build failed"
+              AES_STATUS="failed"
+            fi
+          else
+            echo "DEBUG: No aes build to wait for"
+          fi
+
+          if [[ -n "${AIS_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Waiting for ais build..."
+            set +e
+            wait $AIS_BUILD_PID
+            AIS_WAIT_STATUS=$?
+            set -e
+            if [[ $AIS_WAIT_STATUS -eq 0 ]]; then
+              echo "DEBUG: AIS build completed successfully"
+              AIS_IMAGE=$(cat "$GITHUB_WORKSPACE/ais_image.txt" 2>/dev/null || echo "")
+              AIS_STATUS=$(cat "$GITHUB_WORKSPACE/ais_status.txt" 2>/dev/null || echo "failed")
+              echo "DEBUG: AIS image: $AIS_IMAGE"
+              echo "DEBUG: AIS status: $AIS_STATUS"
+            else
+              echo "DEBUG: AIS build failed"
+              AIS_STATUS="failed"
+            fi
+          else
+            echo "DEBUG: No ais build to wait for"
+          fi
+
+          # Combine server service images and status
+          echo "DEBUG: Combining server service results..."
+          SERVER_IMAGES=""
+          SERVER_SERVICES_SUCCESS=0
+          SERVER_SERVICES_TOTAL=0
+
+          # Check nakama
+          if [[ -n "${NAKAMA_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Processing nakama - PID: $NAKAMA_BUILD_PID, Status: $NAKAMA_STATUS, Image: $NAKAMA_IMAGE"
+            SERVER_SERVICES_TOTAL=$((SERVER_SERVICES_TOTAL + 1))
+            if [[ "$NAKAMA_STATUS" == "success" ]] && [[ -n "$NAKAMA_IMAGE" ]]; then
+              SERVER_IMAGES="${SERVER_IMAGES}$NAKAMA_IMAGE,"
+              SERVER_SERVICES_SUCCESS=$((SERVER_SERVICES_SUCCESS + 1))
+            fi
+          fi
+
+          # Check afs
+          if [[ -n "${AFS_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Processing afs - PID: $AFS_BUILD_PID, Status: $AFS_STATUS, Image: $AFS_IMAGE"
+            SERVER_SERVICES_TOTAL=$((SERVER_SERVICES_TOTAL + 1))
+            if [[ "$AFS_STATUS" == "success" ]] && [[ -n "$AFS_IMAGE" ]]; then
+              SERVER_IMAGES="${SERVER_IMAGES}$AFS_IMAGE,"
+              SERVER_SERVICES_SUCCESS=$((SERVER_SERVICES_SUCCESS + 1))
+            fi
+          fi
+
+          # Check ahsat
+          if [[ -n "${AHSAT_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Processing ahsat - PID: $AHSAT_BUILD_PID, Status: $AHSAT_STATUS, Image: $AHSAT_IMAGE"
+            SERVER_SERVICES_TOTAL=$((SERVER_SERVICES_TOTAL + 1))
+            if [[ "$AHSAT_STATUS" == "success" ]] && [[ -n "$AHSAT_IMAGE" ]]; then
+              SERVER_IMAGES="${SERVER_IMAGES}$AHSAT_IMAGE,"
+              SERVER_SERVICES_SUCCESS=$((SERVER_SERVICES_SUCCESS + 1))
+            fi
+          fi
+
+          # Check aes
+          if [[ -n "${AES_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Processing aes - PID: $AES_BUILD_PID, Status: $AES_STATUS, Image: $AES_IMAGE"
+            SERVER_SERVICES_TOTAL=$((SERVER_SERVICES_TOTAL + 1))
+            if [[ "$AES_STATUS" == "success" ]] && [[ -n "$AES_IMAGE" ]]; then
+              SERVER_IMAGES="${SERVER_IMAGES}$AES_IMAGE,"
+              SERVER_SERVICES_SUCCESS=$((SERVER_SERVICES_SUCCESS + 1))
+            fi
+          fi
+
+          # Check ais
+          if [[ -n "${AIS_BUILD_PID:-}" ]]; then
+            echo "DEBUG: Processing ais - PID: $AIS_BUILD_PID, Status: $AIS_STATUS, Image: $AIS_IMAGE"
+            SERVER_SERVICES_TOTAL=$((SERVER_SERVICES_TOTAL + 1))
+            if [[ "$AIS_STATUS" == "success" ]] && [[ -n "$AIS_IMAGE" ]]; then
+              SERVER_IMAGES="${SERVER_IMAGES}$AIS_IMAGE,"
+              SERVER_SERVICES_SUCCESS=$((SERVER_SERVICES_SUCCESS + 1))
+            fi
+          fi
+
+          # Remove trailing comma and set status
+          echo "DEBUG: Before comma removal - SERVER_IMAGES: $SERVER_IMAGES"
+          SERVER_IMAGES="${SERVER_IMAGES%,}"
+          echo "DEBUG: After comma removal - SERVER_IMAGES: $SERVER_IMAGES"
+
+          if [[ $SERVER_SERVICES_TOTAL -eq 0 ]]; then
+            SERVER_STATUS="skipped"
+          elif [[ $SERVER_SERVICES_SUCCESS -eq $SERVER_SERVICES_TOTAL ]]; then
+            SERVER_STATUS="success"
+          elif [[ $SERVER_SERVICES_SUCCESS -gt 0 ]]; then
+            SERVER_STATUS="partial"
+          else
+            SERVER_STATUS="failed"
+          fi
+
+          echo "DEBUG: Combined server results - Images: $SERVER_IMAGES, Status: $SERVER_STATUS ($SERVER_SERVICES_SUCCESS/$SERVER_SERVICES_TOTAL)"
+
+          # Set outputs
+          echo "DEBUG: Setting outputs..."
+          echo "DEBUG: Final SERVER_STATUS=$SERVER_STATUS"
+          echo "DEBUG: Final LOBBY_STATUS=$LOBBY_STATUS"
+          echo "DEBUG: Final LOBBY_BACKEND_STATUS=$LOBBY_BACKEND_STATUS"
+          echo "DEBUG: Final NAKAMA_STATUS=$NAKAMA_STATUS"
+          echo "DEBUG: Final AFS_STATUS=$AFS_STATUS"
+          echo "DEBUG: Final AHSAT_STATUS=$AHSAT_STATUS"
+          echo "DEBUG: Final AES_STATUS=$AES_STATUS"
+          echo "DEBUG: Final AIS_STATUS=$AIS_STATUS"
+          echo "DEBUG: Final SERVER_IMAGES=$SERVER_IMAGES"
+          echo "DEBUG: Final LOBBY_IMAGE=$LOBBY_IMAGE"
+          echo "DEBUG: Final LOBBY_BACKEND_IMAGE=$LOBBY_BACKEND_IMAGE"
+          echo "DEBUG: Final NAKAMA_IMAGE=$NAKAMA_IMAGE"
+          echo "DEBUG: Final AFS_IMAGE=$AFS_IMAGE"
+          echo "DEBUG: Final AHSAT_IMAGE=$AHSAT_IMAGE"
+          echo "DEBUG: Final AES_IMAGE=$AES_IMAGE"
+          echo "DEBUG: Final AIS_IMAGE=$AIS_IMAGE"
+
+          echo "server_images=$SERVER_IMAGES" >> $GITHUB_OUTPUT
+          echo "lobby_image=$LOBBY_IMAGE" >> $GITHUB_OUTPUT
+          echo "lobby_backend_image=$LOBBY_BACKEND_IMAGE" >> $GITHUB_OUTPUT
+          echo "nakama_image=$NAKAMA_IMAGE" >> $GITHUB_OUTPUT
+          echo "afs_image=$AFS_IMAGE" >> $GITHUB_OUTPUT
+          echo "ahsat_image=$AHSAT_IMAGE" >> $GITHUB_OUTPUT
+          echo "aes_image=$AES_IMAGE" >> $GITHUB_OUTPUT
+          echo "ais_image=$AIS_IMAGE" >> $GITHUB_OUTPUT
+          echo "server_status=$SERVER_STATUS" >> $GITHUB_OUTPUT
+          echo "lobby_status=$LOBBY_STATUS" >> $GITHUB_OUTPUT
+          echo "lobby_backend_status=$LOBBY_BACKEND_STATUS" >> $GITHUB_OUTPUT
+          echo "nakama_status=$NAKAMA_STATUS" >> $GITHUB_OUTPUT
+          echo "afs_status=$AFS_STATUS" >> $GITHUB_OUTPUT
+          echo "ahsat_status=$AHSAT_STATUS" >> $GITHUB_OUTPUT
+          echo "aes_status=$AES_STATUS" >> $GITHUB_OUTPUT
+          echo "ais_status=$AIS_STATUS" >> $GITHUB_OUTPUT
+
+          # ===== FAILURE LOGIC IMPLEMENTATION =====
+          echo "DEBUG: Implementing user-defined failure logic..."
+
+          # Count builds that were supposed to run vs actual results
+          EXPECTED_APPS="${{ inputs.applications || 'all' }}"
+          BUILDS_ATTEMPTED=0
+          BUILDS_SUCCESS=0
+          BUILDS_FAILED=0
+
+          # Check each service that was requested
+          if [[ ",$APPS," =~ ,lobby, ]]; then
+            BUILDS_ATTEMPTED=$((BUILDS_ATTEMPTED + 1))
+            if [[ "$LOBBY_STATUS" == "success" ]]; then
+              BUILDS_SUCCESS=$((BUILDS_SUCCESS + 1))
+            elif [[ "$LOBBY_STATUS" == "failed" ]]; then
+              BUILDS_FAILED=$((BUILDS_FAILED + 1))
+            fi
+          fi
+
+          if [[ ",$APPS," =~ ,lobby-backend, ]]; then
+            BUILDS_ATTEMPTED=$((BUILDS_ATTEMPTED + 1))
+            if [[ "$LOBBY_BACKEND_STATUS" == "success" ]]; then
+              BUILDS_SUCCESS=$((BUILDS_SUCCESS + 1))
+            elif [[ "$LOBBY_BACKEND_STATUS" == "failed" ]]; then
+              BUILDS_FAILED=$((BUILDS_FAILED + 1))
+            fi
+          fi
+
+          if [[ ",$APPS," =~ ,nakama, ]]; then
+            BUILDS_ATTEMPTED=$((BUILDS_ATTEMPTED + 1))
+            if [[ "$NAKAMA_STATUS" == "success" ]]; then
+              BUILDS_SUCCESS=$((BUILDS_SUCCESS + 1))
+            elif [[ "$NAKAMA_STATUS" == "failed" ]]; then
+              BUILDS_FAILED=$((BUILDS_FAILED + 1))
+            fi
+          fi
+
+          if [[ ",$APPS," =~ ,afs, ]]; then
+            BUILDS_ATTEMPTED=$((BUILDS_ATTEMPTED + 1))
+            if [[ "$AFS_STATUS" == "success" ]]; then
+              BUILDS_SUCCESS=$((BUILDS_SUCCESS + 1))
+            elif [[ "$AFS_STATUS" == "failed" ]]; then
+              BUILDS_FAILED=$((BUILDS_FAILED + 1))
+            fi
+          fi
+
+          if [[ ",$APPS," =~ ,ahsat, ]]; then
+            BUILDS_ATTEMPTED=$((BUILDS_ATTEMPTED + 1))
+            if [[ "$AHSAT_STATUS" == "success" ]]; then
+              BUILDS_SUCCESS=$((BUILDS_SUCCESS + 1))
+            elif [[ "$AHSAT_STATUS" == "failed" ]]; then
+              BUILDS_FAILED=$((BUILDS_FAILED + 1))
+            fi
+          fi
+
+          if [[ ",$APPS," =~ ,aes, ]]; then
+            BUILDS_ATTEMPTED=$((BUILDS_ATTEMPTED + 1))
+            if [[ "$AES_STATUS" == "success" ]]; then
+              BUILDS_SUCCESS=$((BUILDS_SUCCESS + 1))
+            elif [[ "$AES_STATUS" == "failed" ]]; then
+              BUILDS_FAILED=$((BUILDS_FAILED + 1))
+            fi
+          fi
+
+          if [[ ",$APPS," =~ ,ais, ]]; then
+            BUILDS_ATTEMPTED=$((BUILDS_ATTEMPTED + 1))
+            if [[ "$AIS_STATUS" == "success" ]]; then
+              BUILDS_SUCCESS=$((BUILDS_SUCCESS + 1))
+            elif [[ "$AIS_STATUS" == "failed" ]]; then
+              BUILDS_FAILED=$((BUILDS_FAILED + 1))
+            fi
+          fi
+
+          echo "DEBUG: User failure logic - Attempted: $BUILDS_ATTEMPTED, Success: $BUILDS_SUCCESS, Failed: $BUILDS_FAILED"
+
+          # Apply user's NEW REQUIREMENTS: ALL-OR-NOTHING FAILURE LOGIC
+          # ANY failure = workflow fails, NO ECR push
+          # ALL success = workflow succeeds, ECR push proceeds
+
+          # Store failure decision but don't exit yet - need outputs to be generated first
+          SHOULD_FAIL="false"
+
+          if [[ $BUILDS_FAILED -gt 0 ]]; then
+            echo "❌ ALL-OR-NOTHING LOGIC: $BUILDS_FAILED builds failed out of $BUILDS_ATTEMPTED - workflow will fail, NO ECR push"
+            SHOULD_FAIL="true"
+          else
+            echo "✅ ALL-OR-NOTHING LOGIC: All $BUILDS_ATTEMPTED builds succeeded - workflow will continue to ECR push"
+            SHOULD_FAIL="false"
+          fi
+
+          echo "DEBUG: Final SHOULD_FAIL value: $SHOULD_FAIL"
+          echo "DEBUG: About to write should_fail=$SHOULD_FAIL to GITHUB_OUTPUT"
+          echo "should_fail=$SHOULD_FAIL" >> $GITHUB_OUTPUT
+          echo "DEBUG: Contents of GITHUB_OUTPUT after write:"
+          cat $GITHUB_OUTPUT
+          echo "DEBUG: End of GITHUB_OUTPUT contents"
+          echo "✅ Parallel builds completed with user-defined success logic"
+
+      # ===== ECR PUSH STEP (Only if all builds succeeded) =====
+      - name: "Push Images to ECR"
+        if: ${{ inputs.ecr_push == true && steps.build-parallel.outputs.should_fail == 'false' }}
+        run: |
+          echo "🚀 All builds succeeded - pushing images to ECR..."
+
+          # Get all images that were successfully built
+          LOBBY_IMAGE="${{ steps.build-parallel.outputs.lobby_image }}"
+          LOBBY_BACKEND_IMAGE="${{ steps.build-parallel.outputs.lobby_backend_image }}"
+          NAKAMA_IMAGE="${{ steps.build-parallel.outputs.nakama_image }}"
+          AFS_IMAGE="${{ steps.build-parallel.outputs.afs_image }}"
+          AHSAT_IMAGE="${{ steps.build-parallel.outputs.ahsat_image }}"
+          AES_IMAGE="${{ steps.build-parallel.outputs.aes_image }}"
+          AIS_IMAGE="${{ steps.build-parallel.outputs.ais_image }}"
+
+          # Push all successful builds to ECR - PARALLEL OPTIMIZATION
+          echo "🚀 Starting parallel ECR pushes..."
+
+          # Create push functions for each service
+          push_lobby() {
+            if [[ -n "$LOBBY_IMAGE" && "$LOBBY_IMAGE" != "none" ]]; then
+              echo "📦 [LOBBY] Starting push: $LOBBY_IMAGE"
+              if docker push "$LOBBY_IMAGE"; then
+                echo "success" > "$GITHUB_WORKSPACE/push_lobby_status.txt"
+                echo "✅ [LOBBY] Pushed successfully"
+              else
+                echo "failed" > "$GITHUB_WORKSPACE/push_lobby_status.txt"
+                echo "❌ [LOBBY] Push failed"
+              fi
+            else
+              echo "skipped" > "$GITHUB_WORKSPACE/push_lobby_status.txt"
+            fi
+          }
+
+          push_lobby_backend() {
+            if [[ -n "$LOBBY_BACKEND_IMAGE" && "$LOBBY_BACKEND_IMAGE" != "none" ]]; then
+              echo "📦 [LOBBY-BACKEND] Starting push: $LOBBY_BACKEND_IMAGE"
+              if docker push "$LOBBY_BACKEND_IMAGE"; then
+                echo "success" > "$GITHUB_WORKSPACE/push_lobby_backend_status.txt"
+                echo "✅ [LOBBY-BACKEND] Pushed successfully"
+              else
+                echo "failed" > "$GITHUB_WORKSPACE/push_lobby_backend_status.txt"
+                echo "❌ [LOBBY-BACKEND] Push failed"
+              fi
+            else
+              echo "skipped" > "$GITHUB_WORKSPACE/push_lobby_backend_status.txt"
+            fi
+          }
+
+          push_nakama() {
+            if [[ -n "$NAKAMA_IMAGE" && "$NAKAMA_IMAGE" != "none" ]]; then
+              echo "📦 [NAKAMA] Starting push: $NAKAMA_IMAGE"
+              if docker push "$NAKAMA_IMAGE"; then
+                echo "success" > "$GITHUB_WORKSPACE/push_nakama_status.txt"
+                echo "✅ [NAKAMA] Pushed successfully"
+              else
+                echo "failed" > "$GITHUB_WORKSPACE/push_nakama_status.txt"
+                echo "❌ [NAKAMA] Push failed"
+              fi
+            else
+              echo "skipped" > "$GITHUB_WORKSPACE/push_nakama_status.txt"
+            fi
+          }
+
+          push_afs() {
+            if [[ -n "$AFS_IMAGE" && "$AFS_IMAGE" != "none" ]]; then
+              echo "📦 [AFS] Starting push: $AFS_IMAGE"
+              if docker push "$AFS_IMAGE"; then
+                echo "success" > "$GITHUB_WORKSPACE/push_afs_status.txt"
+                echo "✅ [AFS] Pushed successfully"
+              else
+                echo "failed" > "$GITHUB_WORKSPACE/push_afs_status.txt"
+                echo "❌ [AFS] Push failed"
+              fi
+            else
+              echo "skipped" > "$GITHUB_WORKSPACE/push_afs_status.txt"
+            fi
+          }
+
+          push_ahsat() {
+            if [[ -n "$AHSAT_IMAGE" && "$AHSAT_IMAGE" != "none" ]]; then
+              echo "📦 [AHSAT] Starting push: $AHSAT_IMAGE"
+              if docker push "$AHSAT_IMAGE"; then
+                echo "success" > "$GITHUB_WORKSPACE/push_ahsat_status.txt"
+                echo "✅ [AHSAT] Pushed successfully"
+              else
+                echo "failed" > "$GITHUB_WORKSPACE/push_ahsat_status.txt"
+                echo "❌ [AHSAT] Push failed"
+              fi
+            else
+              echo "skipped" > "$GITHUB_WORKSPACE/push_ahsat_status.txt"
+            fi
+          }
+
+          push_aes() {
+            if [[ -n "$AES_IMAGE" && "$AES_IMAGE" != "none" ]]; then
+              echo "📦 [AES] Starting push: $AES_IMAGE"
+              if docker push "$AES_IMAGE"; then
+                echo "success" > "$GITHUB_WORKSPACE/push_aes_status.txt"
+                echo "✅ [AES] Pushed successfully"
+              else
+                echo "failed" > "$GITHUB_WORKSPACE/push_aes_status.txt"
+                echo "❌ [AES] Push failed"
+              fi
+            else
+              echo "skipped" > "$GITHUB_WORKSPACE/push_aes_status.txt"
+            fi
+          }
+
+          push_ais() {
+            if [[ -n "$AIS_IMAGE" && "$AIS_IMAGE" != "none" ]]; then
+              echo "📦 [AIS] Starting push: $AIS_IMAGE"
+              if docker push "$AIS_IMAGE"; then
+                echo "success" > "$GITHUB_WORKSPACE/push_ais_status.txt"
+                echo "✅ [AIS] Pushed successfully"
+              else
+                echo "failed" > "$GITHUB_WORKSPACE/push_ais_status.txt"
+                echo "❌ [AIS] Push failed"
+              fi
+            else
+              echo "skipped" > "$GITHUB_WORKSPACE/push_ais_status.txt"
+            fi
+          }
+
+          # BATCHED ECR PUSH - Limit to 3 concurrent to prevent bandwidth saturation
+          echo "🚀 Starting BATCHED ECR pushes (3 concurrent max for optimal performance)..."
+
+          # BATCH 1: First 3 services
+          echo "📻 [BATCH 1] Starting push batch 1/2 (lobby, lobby-backend, nakama)..."
+          push_lobby &
+          LOBBY_PUSH_PID=$!
+
+          push_lobby_backend &
+          LOBBY_BACKEND_PUSH_PID=$!
+
+          push_nakama &
+          NAKAMA_PUSH_PID=$!
+
+          echo "⏳ [BATCH 1] Waiting for batch 1 to complete..."
+          wait $LOBBY_PUSH_PID
+          wait $LOBBY_BACKEND_PUSH_PID
+          wait $NAKAMA_PUSH_PID
+          echo "✅ [BATCH 1] Batch 1 completed"
+
+          # BATCH 2: Remaining services
+          echo "📻 [BATCH 2] Starting push batch 2/2 (afs, ahsat, aes, ais)..."
+          push_afs &
+          AFS_PUSH_PID=$!
+
+          push_ahsat &
+          AHSAT_PUSH_PID=$!
+
+          push_aes &
+          AES_PUSH_PID=$!
+
+          push_ais &
+          AIS_PUSH_PID=$!
+
+          echo "⏳ [BATCH 2] Waiting for batch 2 to complete..."
+          wait $AFS_PUSH_PID
+          wait $AHSAT_PUSH_PID
+          wait $AES_PUSH_PID
+          wait $AIS_PUSH_PID
+          echo "✅ [BATCH 2] Batch 2 completed"
+
+          echo "✅ All parallel ECR pushes completed"
+
+          # Count results
+          PUSH_SUCCESS=0
+          PUSH_TOTAL=0
+
+          for service in lobby lobby_backend nakama afs ahsat aes ais; do
+            STATUS=$(cat "$GITHUB_WORKSPACE/push_${service}_status.txt" 2>/dev/null || echo "unknown")
+            if [[ "$STATUS" != "skipped" ]]; then
+              PUSH_TOTAL=$((PUSH_TOTAL + 1))
+              if [[ "$STATUS" == "success" ]]; then
+                PUSH_SUCCESS=$((PUSH_SUCCESS + 1))
+              fi
+            fi
+          done
+
+          echo "📊 ECR Push Results: $PUSH_SUCCESS/$PUSH_TOTAL images pushed successfully"
+
+          if [[ $PUSH_SUCCESS -eq $PUSH_TOTAL ]]; then
+            echo "🎉 All images pushed to ECR successfully"
+          else
+            echo "💥 Some ECR pushes failed - this should not happen after successful builds"
+            exit 1
+          fi
+
+      # ===== BUILD SUMMARY =====
+      - name: "Generate Build Summary"
+        id: build-summary
+        if: always()
+        run: |
+          SERVER_IMAGES="${{ steps.build-parallel.outputs.server_images || 'none' }}"
+          LOBBY_IMAGE="${{ steps.build-parallel.outputs.lobby_image || 'none' }}"
+          LOBBY_BACKEND_IMAGE="${{ steps.build-parallel.outputs.lobby_backend_image || 'none' }}"
+          NAKAMA_IMAGE="${{ steps.build-parallel.outputs.nakama_image || 'none' }}"
+          AFS_IMAGE="${{ steps.build-parallel.outputs.afs_image || 'none' }}"
+          AHSAT_IMAGE="${{ steps.build-parallel.outputs.ahsat_image || 'none' }}"
+          AES_IMAGE="${{ steps.build-parallel.outputs.aes_image || 'none' }}"
+          AIS_IMAGE="${{ steps.build-parallel.outputs.ais_image || 'none' }}"
+          SELECTED_APPS="${{ steps.determine-build.outputs.applications }}"
+
+          echo "server_image=$SERVER_IMAGES" >> $GITHUB_OUTPUT
+          echo "lobby_image=$LOBBY_IMAGE" >> $GITHUB_OUTPUT
+          echo "lobby_backend_image=$LOBBY_BACKEND_IMAGE" >> $GITHUB_OUTPUT
+          echo "nakama_image=$NAKAMA_IMAGE" >> $GITHUB_OUTPUT
+          echo "afs_image=$AFS_IMAGE" >> $GITHUB_OUTPUT
+          echo "ahsat_image=$AHSAT_IMAGE" >> $GITHUB_OUTPUT
+          echo "aes_image=$AES_IMAGE" >> $GITHUB_OUTPUT
+          echo "ais_image=$AIS_IMAGE" >> $GITHUB_OUTPUT
+
+          # Write directly to GitHub Step Summary - SIMPLIFIED
+          echo "## 🚀 Container Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ECR Images" >> $GITHUB_STEP_SUMMARY
+
+          # Only show images for selected services
+          if [[ ",$SELECTED_APPS," =~ ,lobby, && "$LOBBY_IMAGE" != "none" ]]; then
+            echo "**Lobby Image:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`$LOBBY_IMAGE\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ ",$SELECTED_APPS," =~ ,lobby-backend, && "$LOBBY_BACKEND_IMAGE" != "none" ]]; then
+            echo "**Lobby Backend Image:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`$LOBBY_BACKEND_IMAGE\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ ",$SELECTED_APPS," =~ ,nakama, && "$NAKAMA_IMAGE" != "none" ]]; then
+            echo "**Nakama Image:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`$NAKAMA_IMAGE\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ ",$SELECTED_APPS," =~ ,afs, && "$AFS_IMAGE" != "none" ]]; then
+            echo "**AFS Image:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`$AFS_IMAGE\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ ",$SELECTED_APPS," =~ ,ahsat, && "$AHSAT_IMAGE" != "none" ]]; then
+            echo "**AHSAT Image:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`$AHSAT_IMAGE\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ ",$SELECTED_APPS," =~ ,aes, && "$AES_IMAGE" != "none" ]]; then
+            echo "**AES Image:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`$AES_IMAGE\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ ",$SELECTED_APPS," =~ ,ais, && "$AIS_IMAGE" != "none" ]]; then
+            echo "**AIS Image:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`$AIS_IMAGE\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### Build Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Applications Selected**: ${{ steps.determine-build.outputs.applications }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image Tag**: ${{ steps.determine-build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ECR Push**: ${{ inputs.ecr_push }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Time**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Build summary written to GitHub Step Summary"
+
+      # ===== USER-DEFINED FAILURE LOGIC =====
+      - name: "Apply User-Defined Failure Logic"
+        if: steps.build-parallel.outputs.should_fail == 'true'
+        run: |
+          echo "❌ Applying user-defined failure logic - build must fail"
+          exit 1
+
+      # ===== FAILURE HANDLING =====
+      - name: "Handle Build Failures"
+        if: failure()
+        run: |
+          echo "❌ Build failed! Debugging information:"
+          echo "- Server status: ${{ steps.build-parallel.outputs.server_status || 'not attempted' }}"
+          echo "- Lobby status: ${{ steps.build-parallel.outputs.lobby_status || 'not attempted' }}"
+          echo "- Lobby Backend status: ${{ steps.build-parallel.outputs.lobby_backend_status || 'not attempted' }}"
+          echo "- Nakama status: ${{ steps.build-parallel.outputs.nakama_status || 'not attempted' }}"
+          echo "- AFS status: ${{ steps.build-parallel.outputs.afs_status || 'not attempted' }}"
+          echo "- AHSAT status: ${{ steps.build-parallel.outputs.ahsat_status || 'not attempted' }}"
+          echo "- AES status: ${{ steps.build-parallel.outputs.aes_status || 'not attempted' }}"
+          echo "- AIS status: ${{ steps.build-parallel.outputs.ais_status || 'not attempted' }}"
+
+          if docker images | grep -E "(nakama|afs|ahsat|aes|ais|postgres|lobby)"; then
+            echo "Local images built:"
+            docker images | grep -E "(nakama|afs|ahsat|aes|ais|postgres|lobby)"
+          fi
+
+          echo "💡 Check individual step logs for specific error details."
+
+          # Extract error logs from recent output and filter for actual errors
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Error Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server status**: ${{ steps.build-parallel.outputs.server_status || 'not attempted' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lobby status**: ${{ steps.build-parallel.outputs.lobby_status || 'not attempted' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lobby Backend status**: ${{ steps.build-parallel.outputs.lobby_backend_status || 'not attempted' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Nakama status**: ${{ steps.build-parallel.outputs.nakama_status || 'not attempted' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AFS status**: ${{ steps.build-parallel.outputs.afs_status || 'not attempted' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AHSAT status**: ${{ steps.build-parallel.outputs.ahsat_status || 'not attempted' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AES status**: ${{ steps.build-parallel.outputs.aes_status || 'not attempted' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AIS status**: ${{ steps.build-parallel.outputs.ais_status || 'not attempted' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Extract actual error logs from build failures
+          echo "### 🔍 Error Logs" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          ERROR_FOUND=false
+
+          # Show actual build errors from log files
+          if [[ -f "lobby_error.log" && "${{ steps.build-parallel.outputs.lobby_status }}" == "failed" ]]; then
+            echo "=== LOBBY BUILD ERRORS ===" >> $GITHUB_STEP_SUMMARY
+            tail -50 lobby_error.log >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            ERROR_FOUND=true
+          fi
+
+          if [[ -f "lobby_backend_error.log" && "${{ steps.build-parallel.outputs.lobby_backend_status }}" == "failed" ]]; then
+            echo "=== LOBBY-BACKEND BUILD ERRORS ===" >> $GITHUB_STEP_SUMMARY
+            tail -50 lobby_backend_error.log >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            ERROR_FOUND=true
+          fi
+
+          # Check for service build errors
+          if [[ -f "nakama_error.log" && "${{ steps.build-parallel.outputs.nakama_status }}" == "failed" ]]; then
+            echo "=== NAKAMA BUILD ERRORS ===" >> $GITHUB_STEP_SUMMARY
+            tail -50 nakama_error.log >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            ERROR_FOUND=true
+          fi
+
+          if [[ -f "afs_error.log" && "${{ steps.build-parallel.outputs.afs_status }}" == "failed" ]]; then
+            echo "=== AFS BUILD ERRORS ===" >> $GITHUB_STEP_SUMMARY
+            tail -50 afs_error.log >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            ERROR_FOUND=true
+          fi
+
+          if [[ -f "ahsat_error.log" && "${{ steps.build-parallel.outputs.ahsat_status }}" == "failed" ]]; then
+            echo "=== AHSAT BUILD ERRORS ===" >> $GITHUB_STEP_SUMMARY
+            tail -50 ahsat_error.log >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            ERROR_FOUND=true
+          fi
+
+          if [[ -f "aes_error.log" && "${{ steps.build-parallel.outputs.aes_status }}" == "failed" ]]; then
+            echo "=== AES BUILD ERRORS ===" >> $GITHUB_STEP_SUMMARY
+            tail -50 aes_error.log >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            ERROR_FOUND=true
+          fi
+
+          if [[ -f "ais_error.log" && "${{ steps.build-parallel.outputs.ais_status }}" == "failed" ]]; then
+            echo "=== AIS BUILD ERRORS ===" >> $GITHUB_STEP_SUMMARY
+            tail -50 ais_error.log >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            ERROR_FOUND=true
+          fi
+
+          # Show all failed status for debugging
+          if [[ "$ERROR_FOUND" == "false" ]]; then
+            echo "=== BUILD STATUS DEBUG ===" >> $GITHUB_STEP_SUMMARY
+            echo "LOBBY_STATUS=$LOBBY_STATUS" >> $GITHUB_STEP_SUMMARY
+            echo "LOBBY_BACKEND_STATUS=$LOBBY_BACKEND_STATUS" >> $GITHUB_STEP_SUMMARY
+            echo "NAKAMA_STATUS=$NAKAMA_STATUS" >> $GITHUB_STEP_SUMMARY
+            echo "AFS_STATUS=$AFS_STATUS" >> $GITHUB_STEP_SUMMARY
+            echo "AHSAT_STATUS=$AHSAT_STATUS" >> $GITHUB_STEP_SUMMARY
+            echo "AES_STATUS=$AES_STATUS" >> $GITHUB_STEP_SUMMARY
+            echo "AIS_STATUS=$AIS_STATUS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # List all error log files that exist
+            echo "Available error logs:" >> $GITHUB_STEP_SUMMARY
+            ls -la *.log 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No .log files found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💡 Check individual build step logs above for detailed error information." >> $GITHUB_STEP_SUMMARY
+
+          # Smart failure logic: only fail if single build or all builds failed
+          EXPECTED_APPS="${{ inputs.applications || 'all' }}"
+
+          # Count total expected builds
+          TOTAL_EXPECTED=0
+          FAILED_BUILDS=0
+          FAILED_SERVICES=()
+
+          # Check each service that was supposed to build
+          if [[ "$EXPECTED_APPS" =~ "lobby" ]] || [[ "$EXPECTED_APPS" == "all" ]]; then
+            ((TOTAL_EXPECTED++))
+            if [[ "$LOBBY_STATUS" == "failed" ]]; then
+              ((FAILED_BUILDS++))
+              FAILED_SERVICES+=("lobby")
+            fi
+          fi
+          if [[ "$EXPECTED_APPS" =~ "lobby-backend" ]] || [[ "$EXPECTED_APPS" == "all" ]]; then
+            ((TOTAL_EXPECTED++))
+            if [[ "$LOBBY_BACKEND_STATUS" == "failed" ]]; then
+              ((FAILED_BUILDS++))
+              FAILED_SERVICES+=("lobby-backend")
+            fi
+          fi
+          if [[ "$EXPECTED_APPS" =~ "nakama" ]] || [[ "$EXPECTED_APPS" == "all" ]] || [[ "$EXPECTED_APPS" == "server" ]]; then
+            ((TOTAL_EXPECTED++))
+            if [[ "$NAKAMA_STATUS" == "failed" ]]; then
+              ((FAILED_BUILDS++))
+              FAILED_SERVICES+=("nakama")
+            fi
+          fi
+          if [[ "$EXPECTED_APPS" =~ "afs" ]] || [[ "$EXPECTED_APPS" == "all" ]] || [[ "$EXPECTED_APPS" == "server" ]]; then
+            ((TOTAL_EXPECTED++))
+            if [[ "$AFS_STATUS" == "failed" ]]; then
+              ((FAILED_BUILDS++))
+              FAILED_SERVICES+=("afs")
+            fi
+          fi
+          if [[ "$EXPECTED_APPS" =~ "ahsat" ]] || [[ "$EXPECTED_APPS" == "all" ]] || [[ "$EXPECTED_APPS" == "server" ]]; then
+            ((TOTAL_EXPECTED++))
+            if [[ "$AHSAT_STATUS" == "failed" ]]; then
+              ((FAILED_BUILDS++))
+              FAILED_SERVICES+=("ahsat")
+            fi
+          fi
+          if [[ "$EXPECTED_APPS" =~ "aes" ]] || [[ "$EXPECTED_APPS" == "all" ]] || [[ "$EXPECTED_APPS" == "server" ]]; then
+            ((TOTAL_EXPECTED++))
+            if [[ "$AES_STATUS" == "failed" ]]; then
+              ((FAILED_BUILDS++))
+              FAILED_SERVICES+=("aes")
+            fi
+          fi
+          if [[ "$EXPECTED_APPS" =~ "ais" ]] || [[ "$EXPECTED_APPS" == "all" ]] || [[ "$EXPECTED_APPS" == "server" ]]; then
+            ((TOTAL_EXPECTED++))
+            if [[ "AIS_STATUS" == "failed" ]]; then
+              ((FAILED_BUILDS++))
+              FAILED_SERVICES+=("ais")
+            fi
+          fi
+
+          echo "📊 Build Summary: $FAILED_BUILDS failed out of $TOTAL_EXPECTED expected builds"
+          echo "Failed services: ${FAILED_SERVICES[*]}"
+
+          # Decision logic: Only fail if building single service and it failed
+          if [[ $TOTAL_EXPECTED -eq 1 && $FAILED_BUILDS -eq 1 ]]; then
+            echo "❌ SINGLE BUILD FAILURE: The only requested build failed!"
+            echo "Failing the workflow since only one service was requested and it failed."
+            exit 1
+          elif [[ $FAILED_BUILDS -gt 0 ]]; then
+            echo "⚠️  PARTIAL BUILD FAILURE: $FAILED_BUILDS out of $TOTAL_EXPECTED builds failed"
+            echo "Continuing workflow since multiple services were requested and some succeeded."
+            echo "✅ Workflow continues with partial success"
+            # DO NOT EXIT - let workflow succeed with partial results
+          else
+            echo "✅ All expected builds completed successfully"
+          fi

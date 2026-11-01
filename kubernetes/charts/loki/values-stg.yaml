@@ -1,0 +1,11 @@
+loki:
+  loki:
+    storage:
+      bucketNames:
+        chunks: project-stg-loki-logs
+        ruler: project-stg-loki-logs
+        admin: project-stg-loki-logs
+
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: project-stg-loki@project-nonprod-env.iam.gserviceaccount.com

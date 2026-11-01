@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gameplatform-config
+  namespace: gameplatform-prd
+data:
+  LOG_LEVEL: "warn"
+  ENVIRONMENT: "prd"
+  DOMAIN: "gameplatform.example.com"

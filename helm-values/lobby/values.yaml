@@ -1,0 +1,130 @@
+# values.yaml
+# Helm chart values
+
+replicaCount: 2
+
+image:
+  repository: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/lobby
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "lobby"
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+
+ingress:
+  enabled: true
+  className: "gce"
+  annotations:
+    kubernetes.io/ingress.allow-http: "false"
+  hosts:
+    - host: dev.gameplatform
+      paths:
+        - path: /*
+          pathType: ImplementationSpecific
+          port: 3000
+  tls: []
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 3000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+# Environment variables
+env:
+  - name: NEXT_TELEMETRY_DISABLED
+    value: "1"
+
+# Environment variables from ConfigMap and Secrets
+envFrom:
+  - configMapRef:
+      name: lobby-config
+  - secretRef:
+      name: lobby-secrets
+
+# External Secrets configuration (GCP Secret Manager)
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: gcp-secret-manager
+    kind: ClusterSecretStore
+  secrets:
+    # OAuth - manual secrets
+    - secretKey: NEXTAUTH_SECRET
+      remoteKey: project-dev-nextauth-secret
+    - secretKey: GOOGLE_CLIENT_ID
+      remoteKey: project-dev-google-client-id
+    - secretKey: GOOGLE_CLIENT_SECRET
+      remoteKey: project-dev-google-client-secret
+
+# Service monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /metrics
+  labels: {}

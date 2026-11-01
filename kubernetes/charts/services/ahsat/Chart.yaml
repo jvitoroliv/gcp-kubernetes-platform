@@ -1,0 +1,12 @@
+apiVersion: v2
+name: ahsat
+description: Analytics Service for GamePlatform Platform
+type: application
+version: 1.0.0
+appVersion: "1.17.11"
+keywords:
+  - microservice
+  - ahsat
+maintainers:
+  - name: GamePlatform DevOps Team
+    email: devops@gameplatform.example.com

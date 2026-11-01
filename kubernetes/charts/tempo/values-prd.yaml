@@ -1,0 +1,10 @@
+tempo:
+  tempo:
+    storage:
+      trace:
+        gcs:
+          bucket_name: project-prd-tempo-traces
+
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: project-prd-tempo@project-prd-env.iam.gserviceaccount.com

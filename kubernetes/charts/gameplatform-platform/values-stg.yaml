@@ -1,0 +1,518 @@
+# Staging environment values for game-platform
+# Deployed to namespace: gameplatform-stg
+# CI/CD automatically updates image tags in this file.
+#
+# Usage:
+#   helm install game-platform . -n gameplatform-stg -f values.yaml -f values-stg.yaml
+
+global:
+  imageRegistry: us-east1-docker.pkg.dev/project-nonprod-env/project-stg-images
+  imagePullPolicy: IfNotPresent
+  domain: stg-gameplatform.example.com
+  environment: stg
+
+  # Database configuration
+  database:
+    secretName: postgres-credentials
+    host: "10.148.0.7"
+    connectionName: "project-nonprod-env:us-east1:project-stg-postgres"
+
+  # External Secrets Operator
+  externalSecrets:
+    enabled: true
+    clusterSecretStore: gcp-secret-manager
+
+  # Monitoring
+  monitoring:
+    enabled: true
+    prometheus:
+      enabled: true
+    grafana:
+      enabled: true
+
+  # Ingress (nginx with Internal Load Balancer + TLS)
+  ingress:
+    className: nginx
+    annotations: {}
+    tls:
+      enabled: true
+      secretName: stg-gameplatform-tls
+
+# Service-specific configurations
+nakama:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "stg-18cd170"
+  serviceMonitor:
+    enabled: true
+  podSecurityContext:
+    runAsNonRoot: false
+  securityContext:
+    runAsUser: 0
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: 2048m
+      memory: 4096Mi
+    limits:
+      cpu: 2048m
+      memory: 4096Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  # Probe config matching AWS ECS health check settings
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 7350
+    initialDelaySeconds: 120
+    periodSeconds: 60
+    timeoutSeconds: 30
+    successThreshold: 1
+    failureThreshold: 10
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 7350
+    initialDelaySeconds: 60
+    periodSeconds: 60
+    timeoutSeconds: 30
+    successThreshold: 1
+    failureThreshold: 10
+  database:
+    cloudSqlProxy:
+      enabled: false
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "nakama-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/enable-cors: "true"
+      nginx.ingress.kubernetes.io/cors-allow-origin: "https://lobby.stg-gameplatform.example.com"
+      nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PUT, POST, DELETE, PATCH, OPTIONS"
+      nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization,Accept"
+      nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    hosts:
+      - host: nakama.stg-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 7350
+    tls:
+      - secretName: stg-gameplatform-tls
+        hosts:
+          - nakama.stg-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: NAKAMA_DATABASE_ADDRESS
+        remoteKey: project-stg-db-nakama-connection
+      - secretKey: DB_HOST
+        remoteKey: project-stg-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-stg-db-nakama-password
+      - secretKey: NAKAMA_HTTP_KEY
+        remoteKey: project-stg-nakama-http-key
+      - secretKey: NAKAMA_SERVER_KEY
+        remoteKey: project-stg-nakama-server-key
+      - secretKey: AES_KEY
+        remoteKey: project-stg-aes-encryption-key
+
+lobby:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "stg-65c5a55"
+  serviceMonitor:
+    enabled: true
+    path: /metrics
+  podSecurityContext:
+    runAsNonRoot: false
+  securityContext:
+    runAsUser: 0
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - DAC_OVERRIDE
+        - CHOWN
+        - FOWNER
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "lobby-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: lobby.stg-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 3000
+    tls:
+      - secretName: stg-gameplatform-tls
+        hosts:
+          - lobby.stg-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: NEXTAUTH_SECRET
+        remoteKey: project-stg-nextauth-secret
+      - secretKey: GOOGLE_CLIENT_ID
+        remoteKey: project-stg-google-client-id
+      - secretKey: GOOGLE_CLIENT_SECRET
+        remoteKey: project-stg-google-client-secret
+
+lobby-backend:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "stg-65c5a55"
+  serviceMonitor:
+    enabled: true
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "lobby-backend-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: lobby-backend.stg-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 3001
+    tls:
+      - secretName: stg-gameplatform-tls
+        hosts:
+          - lobby-backend.stg-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-stg-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-stg-db-nakama-password
+      - secretKey: NAKAMA_SERVER_KEY
+        remoteKey: project-stg-nakama-server-key
+      - secretKey: NAKAMA_HTTP_KEY
+        remoteKey: project-stg-nakama-http-key
+      - secretKey: AES_API_KEY
+        remoteKey: project-stg-aes-api-key
+      - secretKey: SMTP_USER
+        remoteKey: project-stg-smtp-user
+      - secretKey: SMTP_PASSWORD
+        remoteKey: project-stg-smtp-password
+      - secretKey: OAUTH_CLIENT_ID
+        remoteKey: project-stg-google-client-id
+      - secretKey: REDIS_HOST
+        remoteKey: project-stg-redis-host
+      - secretKey: REDIS_PORT
+        remoteKey: project-stg-redis-port
+
+afs:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "stg-1aaa337"
+  serviceMonitor:
+    enabled: true
+  # Workload Identity for native GCS access
+  serviceAccount:
+    create: true
+    annotations:
+      iam.gke.io/gcp-service-account: project-stg-afs@project-nonprod-env.iam.gserviceaccount.com
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "afs-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: afs.stg-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 9933
+    tls:
+      - secretName: stg-gameplatform-tls
+        hosts:
+          - afs.stg-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-stg-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-stg-db-nakama-password
+
+ahsat:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "stg-18cd170"
+  serviceMonitor:
+    enabled: true
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "ahsat-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: ahsat.stg-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 6969
+    tls:
+      - secretName: stg-gameplatform-tls
+        hosts:
+          - ahsat.stg-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-stg-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-stg-db-nakama-password
+      - secretKey: NK_HTTP_KEY
+        remoteKey: project-stg-nakama-http-key
+      - secretKey: AI_API_KEY
+        remoteKey: project-stg-ai-api-key
+      - secretKey: AIS_APP_SECRET
+        remoteKey: project-stg-ais-app-secret
+      - secretKey: AES_API_KEY
+        remoteKey: project-stg-aes-api-key
+
+aes:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "stg-1aaa337"
+  serviceMonitor:
+    enabled: true
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "aes-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: aes.stg-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 1988
+    tls:
+      - secretName: stg-gameplatform-tls
+        hosts:
+          - aes.stg-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: AES_API_KEY
+        remoteKey: project-stg-aes-api-key
+      - secretKey: SMTP_USER
+        remoteKey: project-stg-smtp-user
+      - secretKey: SMTP_PASSWORD
+        remoteKey: project-stg-smtp-password
+
+ais:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "stg-4ac2a9b"
+  serviceMonitor:
+    enabled: true
+  # Workload Identity for native GCS access
+  serviceAccount:
+    create: true
+    annotations:
+      iam.gke.io/gcp-service-account: project-stg-ais@project-nonprod-env.iam.gserviceaccount.com
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "ais-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: ais.stg-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 5050
+    tls:
+      - secretName: stg-gameplatform-tls
+        hosts:
+          - ais.stg-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-stg-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-stg-db-nakama-password
+      - secretKey: AIS_APP_SECRET
+        remoteKey: project-stg-ais-app-secret
+      - secretKey: PIAPI_KEY
+        remoteKey: project-stg-piapi-key
+      - secretKey: GEMINI_API_KEY
+        remoteKey: project-stg-gemini-api-key
+
+aps:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "stg-d93159b"
+  serviceMonitor:
+    enabled: true
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "aps-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: aps.stg-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 4444
+    tls:
+      - secretName: stg-gameplatform-tls
+        hosts:
+          - aps.stg-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: YUNO_PUBLIC_KEY
+        remoteKey: project-stg-yuno-public-key
+      - secretKey: YUNO_PRIVATE_KEY
+        remoteKey: project-stg-yuno-private-key
+      - secretKey: YUNO_ACCOUNT_ID
+        remoteKey: project-stg-yuno-account-id

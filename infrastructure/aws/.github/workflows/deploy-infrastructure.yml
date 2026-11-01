@@ -1,0 +1,227 @@
+name: 🏗️ Deploy Shared Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: 'Infrastructure stack to deploy'
+        required: true
+        type: choice
+        options:
+          - networking
+          - dns-and-alb
+          - atlantis
+          - runners
+          - postgres
+          - live-env
+          - persistent-env
+          - staging-env
+        default: 'networking'
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - stg
+          - live
+        default: 'dev'
+      action:
+        description: 'Terraform action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: 'plan'
+      auto_approve:
+        description: '⚠️ Auto approve terraform apply/destroy (DANGEROUS)'
+        required: false
+        type: boolean
+        default: false
+      terraform_version:
+        description: 'Terraform version'
+        required: false
+        type: string
+        default: '1.13.1'
+
+env:
+  AWS_REGION: ${{ inputs.environment == 'live' && 'sa-east-1' || (inputs.environment == 'stg' && 'us-east-1' || 'us-east-1') }}
+
+jobs:
+  # Pre-flight checks
+  preflight-checks:
+    name: ✅ Pre-flight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      can_proceed: ${{ steps.validate.outputs.can_proceed }}
+    steps:
+      - name: 🔍 Validate deployment requirements
+        id: validate
+        run: |
+          echo "🔍 Validating deployment requirements..."
+          
+          # Check for dangerous operations
+          DANGEROUS_OP=false
+          
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            echo "⚠️ DESTRUCTION requested for ${{ inputs.stack }} in ${{ inputs.environment }}"
+            DANGEROUS_OP=true
+          fi
+          
+          if [ "${{ inputs.environment }}" = "live" ] && [ "${{ inputs.action }}" != "plan" ]; then
+            echo "⚠️ PRODUCTION deployment requested"
+            DANGEROUS_OP=true
+          fi
+          
+          if [ "$DANGEROUS_OP" = "true" ]; then
+            echo "🚨 This is a potentially dangerous operation!"
+            echo "Please review carefully before proceeding."
+            
+            if [ "${{ inputs.auto_approve }}" = "false" ]; then
+              echo "❌ Auto-approve is disabled for safety. Enable it to proceed."
+              echo "can_proceed=false" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "⚠️ Auto-approve is ENABLED. Proceeding with dangerous operation."
+            fi
+          fi
+          
+          echo "✅ Pre-flight checks passed"
+          echo "can_proceed=true" >> $GITHUB_OUTPUT
+
+      - name: 📋 Display deployment plan
+        run: |
+          echo "## 🏗️ Deployment Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Stack** | ${{ inputs.stack }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Action** | ${{ inputs.action }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Auto Approve** | ${{ inputs.auto_approve }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Terraform Version** | ${{ inputs.terraform_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Add warnings for dangerous operations
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            echo "🚨 **WARNING: DESTRUCTION OPERATION**" >> $GITHUB_STEP_SUMMARY
+            echo "This will destroy all resources in the ${{ inputs.stack }} stack!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ inputs.environment }}" = "live" ]; then
+            echo "🚨 **WARNING: PRODUCTION DEPLOYMENT**" >> $GITHUB_STEP_SUMMARY
+            echo "This operation will affect production infrastructure!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Deploy infrastructure using reusable workflow
+  deploy-infrastructure:
+    name: 🚀 Deploy Infrastructure
+    needs: preflight-checks
+    if: needs.preflight-checks.outputs.can_proceed == 'true'
+    uses: example-gamedev-org/gameplatform-shared-actions/.github/workflows/deploy-shared-infrastructure.yml@main
+    with:
+      stack: ${{ inputs.stack }}
+      environment: ${{ inputs.environment }}
+      action: ${{ inputs.action }}
+      terraform_version: ${{ inputs.terraform_version }}
+      auto_approve: ${{ inputs.auto_approve }}
+      shared_infrastructure_ref: ${{ github.ref_name }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ inputs.environment == 'live' && secrets.LIVE_AWS_ACCESS_KEY_ID || (inputs.environment == 'stg' && secrets.STG_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID) }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.environment == 'live' && secrets.LIVE_AWS_SECRET_ACCESS_KEY || (inputs.environment == 'stg' && secrets.STG_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY) }}
+      INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+      ATLANTIS_GITHUB_TOKEN: ${{ secrets.ATLANTIS_GITHUB_TOKEN }}
+      ATLANTIS_WEBHOOK_SECRET: ${{ secrets.ATLANTIS_WEBHOOK_SECRET }}
+
+  # Post-deployment actions
+  post-deployment:
+    name: 📊 Post-Deployment
+    needs: [preflight-checks, deploy-infrastructure]
+    if: always() && needs.preflight-checks.outputs.can_proceed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📊 Deployment Results
+        run: |
+          echo "## 📊 Deployment Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          STATUS="${{ needs.deploy-infrastructure.outputs.deployment_status }}"
+          SERVICE_URL="${{ needs.deploy-infrastructure.outputs.stack_url }}"
+          
+          case "$STATUS" in
+            success)
+              echo "✅ **Deployment Status**: SUCCESS" >> $GITHUB_STEP_SUMMARY
+              if [ -n "$SERVICE_URL" ]; then
+                echo "🔗 **Service URL**: [$SERVICE_URL]($SERVICE_URL)" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            failure|failed)
+              echo "❌ **Deployment Status**: FAILED" >> $GITHUB_STEP_SUMMARY
+              echo "Check the deployment logs for error details." >> $GITHUB_STEP_SUMMARY
+              ;;
+            *)
+              echo "⚪ **Deployment Status**: UNKNOWN" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔔 Atlantis-specific Post-deployment
+        if: inputs.stack == 'atlantis' && inputs.action == 'apply' && needs.deploy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "## 🤖 Atlantis Setup Instructions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Atlantis has been deployed successfully! Complete the setup:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 1. 🔍 Verify Atlantis is Running" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "curl -I ${{ needs.deploy-infrastructure.outputs.stack_url }}/healthz" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 2. 🪝 Configure GitHub Webhook" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: ${{ needs.deploy-infrastructure.outputs.stack_url }}/events" >> $GITHUB_STEP_SUMMARY
+          echo "- **Content Type**: application/json" >> $GITHUB_STEP_SUMMARY  
+          echo "- **Secret**: Use the value from \`ATLANTIS_WEBHOOK_SECRET\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Events**: Send everything (or at minimum: Pull requests, Push)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 3. 🧪 Test Atlantis" >> $GITHUB_STEP_SUMMARY
+          echo "Create a test PR that modifies Terraform files to trigger Atlantis." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 4. 📊 Monitor Atlantis" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# View logs" >> $GITHUB_STEP_SUMMARY
+          echo "aws logs tail /ecs/atlantis/${{ inputs.environment }} --follow" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check ECS service" >> $GITHUB_STEP_SUMMARY
+          echo "aws ecs describe-services --cluster gameplatform-${{ inputs.environment }}-shared-cluster --services gameplatform-${{ inputs.environment }}-atlantis" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: 📈 Success Metrics
+        if: needs.deploy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "Stack: ${{ inputs.stack }}"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Action: ${{ inputs.action }}"
+          
+          if [ -n "${{ needs.deploy-infrastructure.outputs.stack_url }}" ]; then
+            echo "Service URL: ${{ needs.deploy-infrastructure.outputs.stack_url }}"
+          fi
+
+      - name: ❌ Failure Handling
+        if: needs.deploy-infrastructure.outputs.deployment_status == 'failed'
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Check the terraform-deploy job logs for detailed error information."
+          echo ""
+          echo "Common troubleshooting steps:"
+          echo "1. Verify AWS credentials and permissions"
+          echo "2. Check if required resources exist (VPC, ALB, etc.)"
+          echo "3. Verify Terraform state consistency"
+          echo "4. Check variable values in tfvars files"
+          
+          exit 1

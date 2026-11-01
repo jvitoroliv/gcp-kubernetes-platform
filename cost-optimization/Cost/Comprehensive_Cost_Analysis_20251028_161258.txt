@@ -1,0 +1,163 @@
+================================================================================
+AWS MULTI-ACCOUNT COMPREHENSIVE COST ANALYSIS
+Generated: 2025-10-28 16:12:58
+================================================================================
+
+EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+
+Total Monthly Cost (all accounts): $10,456.05
+Total EC2 Instances: 13
+Total RDS Databases: 4
+Total Optimization Opportunities: 6
+
+
+================================================================================
+DETAILED ANALYSIS BY ACCOUNT
+================================================================================
+
+
+--------------------------------------------------------------------------------
+ACCOUNT: LEGADO (777777777777)
+--------------------------------------------------------------------------------
+
+Monthly Cost: $8,696.14
+
+Top 5 Services by Cost:
+  • Amazon Elastic Compute Cloud - Compute: $3,340.48
+  • Amazon Relational Database Service: $2,470.57
+  • Amazon Elastic Container Service: $815.81
+  • EC2 - Other: $719.05
+  • AWS Support (Business): $515.61
+
+Resource Inventory:
+  • EC2: 9 resources
+  • ELB: 9 resources
+  • NAT: 2 resources
+  • S3: 39 resources
+  • ECS: 1 resources
+
+OPTIMIZATION RECOMMENDATIONS:
+
+1. [High] EC2
+   Issue: 1 stopped EC2 instances still incurring EBS costs
+   Recommendation: Terminate unused instances or take snapshots and delete volumes
+   Potential Savings: Est. $5-20/instance/month
+
+2. [Critical] EC2
+   Issue: 1 expensive GPU instances running
+   Recommendation: Review necessity, use spot instances, or schedule shutdowns
+   Potential Savings: Up to 70% with spot + scheduling
+
+3. [Medium] VPC
+   Issue: 2 NAT Gateways ($45/month each)
+   Recommendation: Consolidate to 1 NAT Gateway if possible, or use NAT instances
+   Potential Savings: $90/month
+
+
+--------------------------------------------------------------------------------
+ACCOUNT: SANDBOX (777777777771)
+--------------------------------------------------------------------------------
+
+Monthly Cost: $295.73
+
+Top 5 Services by Cost:
+  • Amazon Elastic Container Service: $139.90
+  • AmazonCloudWatch: $51.07
+  • EC2 - Other: $44.90
+  • Amazon Virtual Private Cloud: $18.40
+  • Amazon Elastic Load Balancing: $16.51
+
+Resource Inventory:
+  • EC2: 1 resources
+  • RDS: 1 resources
+  • ELB: 1 resources
+  • NAT: 1 resources
+  • S3: 5 resources
+  • ECS: 1 resources
+
+OPTIMIZATION RECOMMENDATIONS:
+
+1. [Medium] RDS
+   Issue: 1 development/test databases running 24/7
+   Recommendation: Use Aurora Serverless or schedule shutdowns
+   Potential Savings: Up to 60% with serverless or scheduling
+
+
+--------------------------------------------------------------------------------
+ACCOUNT: LIVE (777777777772)
+--------------------------------------------------------------------------------
+
+Monthly Cost: $1,365.93
+
+Top 5 Services by Cost:
+  • Amazon Relational Database Service: $494.21
+  • Amazon Elastic Container Service: $442.16
+  • EC2 - Other: $239.21
+  • AmazonCloudWatch: $57.05
+  • Amazon Elastic Load Balancing: $53.84
+
+Resource Inventory:
+  • EC2: 2 resources
+  • RDS: 2 resources
+  • ELB: 2 resources
+  • NAT: 3 resources
+  • S3: 5 resources
+  • ECS: 2 resources
+
+OPTIMIZATION RECOMMENDATIONS:
+
+1. [Medium] VPC
+   Issue: 3 NAT Gateways ($45/month each)
+   Recommendation: Consolidate to 1 NAT Gateway if possible, or use NAT instances
+   Potential Savings: $135/month
+
+
+--------------------------------------------------------------------------------
+ACCOUNT: STAGING (777777777775)
+--------------------------------------------------------------------------------
+
+Monthly Cost: $98.24
+
+Top 5 Services by Cost:
+  • Amazon Elastic Container Service: $46.36
+  • EC2 - Other: $21.11
+  • AmazonCloudWatch: $10.96
+  • Amazon Relational Database Service: $10.03
+  • Amazon Virtual Private Cloud: $4.47
+
+Resource Inventory:
+  • EC2: 1 resources
+  • RDS: 1 resources
+  • ELB: 1 resources
+  • NAT: 3 resources
+  • S3: 4 resources
+  • ECS: 2 resources
+
+OPTIMIZATION RECOMMENDATIONS:
+
+1. [Medium] VPC
+   Issue: 3 NAT Gateways ($45/month each)
+   Recommendation: Consolidate to 1 NAT Gateway if possible, or use NAT instances
+   Potential Savings: $135/month
+
+
+================================================================================
+INFRASTRUCTURE AS CODE ANALYSIS
+================================================================================
+
+
+Repository: gameplatform-terraform
+  Terraform Stacks: state, ecs-task-definition, ses-configuration, autoscaling-group, internet-gateway, route53-record, security-group, route53-hosted-zone, alb-listener-rule, cloudwatch-log-group, route-table, iam-role-policy-attachment, rds-serverless, s3-bucket, ecs-service, route-table-association, alb, alb-listener, nat-gateway, iam-policy, ecs-cluster, launch-template, dynamodb-table, iam-role, service-discovery-namespace, service-discovery-service, alb-target-group, vpc, ssm-parameter, ecr-repository, subnet, secretsmanager-secret, rds, eip, acm-certificate
+  Applications: None
+
+
+Repository: gameplatform-shared-infrastructure
+  Terraform Stacks: dns-and-alb, persistent-env, networking, atlantis, postgres, dns-gameplatform-dns, runners, staging-env, metabase, metabase-db, live-env
+  Applications: None
+
+
+Repository: gameplatform-monorepo
+  Terraform Stacks: None
+  Applications: lobby, godot-engine, server, lobby-backend, client, messages, node_modules, .storybook, .next, public, scripts, src, queue-microtask, tinyglobby, callsites, styled-jsx, reusify, @pkgjs, define-data-property, is-bigint, which-boxed-primitive, @types, globals, shebang-regex, path-is-absolute, functions-have-names, next, .bin, is-array-buffer, has-property-descriptors, @emnapi, csstype, string.prototype.trimend, ts-api-utils, strip-ansi, tsconfig-paths, react-is, is-typed-array, function.prototype.name, flatted, loose-envify, es-errors, has-proto, string.prototype.trimstart, ms, possible-typed-array-names, call-bind, math-intrinsics, prelude-ls, escape-string-regexp, has-tostringtag, strip-json-comments, lru-cache, imurmurhash, language-tags, eslint-scope, type-fest, punycode, @scarf, array.prototype.flat, eslint-config-next, string.prototype.trim, js-base64, text-table, rimraf, side-channel-list, fast-json-stable-stringify, eslint-plugin-import, object.values, balanced-match, path-exists, resolve, @eslint, data-view-byte-offset, call-bind-apply-helpers, is-number-object, aria-query, nanoid, acorn, file-entry-cache, @nodelib, signal-exit, wrap-ansi, own-keys, once, reflect.getprototypeof, is-generator-function, async-function, is-negative-zero, ignore, esrecurse, tslib, argparse, picomatch, jsx-ast-utils, is-symbol, function-bind, is-glob, is-async-function, is-weakref, axe-core, is-fullwidth-code-point, typescript, flat-cache, inherits, is-date-object, array-includes, color-name, es-define-property, @swc, postcss, p-locate, get-intrinsic, eslint-import-resolver-node, object.entries, keyv, @typescript-eslint, es-to-primitive, es-abstract, @tybys, @ungap, js-yaml, eslint-visitor-keys, jackspeak, call-bound, typed-array-length, scheduler, eslint-plugin-react-hooks, strip-ansi-cjs, napi-postinstall, set-function-name, parent-module, @humanwhocodes, eslint-module-utils, dunder-proto, hasown, side-channel-weakmap, is-path-inside, run-parallel, p-limit, data-view-buffer, typed-array-byte-length, undici-types, strip-bom, json-schema-traverse, @isaacs, natural-compare, minimist, regexp.prototype.flags, string.prototype.includes, iterator.prototype, eslint-plugin-jsx-a11y, esutils, find-up, chalk, ansi-regex, damerau-levenshtein, has-flag, supports-color, wrap-ansi-cjs, unbox-primitive, is-shared-array-buffer, supports-preserve-symlinks-flag, typed-array-byte-offset, color-convert, path-key, is-bun-module, stable-hash, array-buffer-byte-length, brace-expansion, foreground-child, fill-range, json-stable-stringify-without-jsonify, react-dom, word-wrap, path-parse, has-symbols, picocolors, string.prototype.repeat, arraybuffer.prototype.slice, @napi-rs, internal-slot, set-proto, json-buffer, which-builtin-type, safe-array-concat, base64-arraybuffer, doctrine, eastasianwidth, @nolyfill, array.prototype.tosorted, semver, is-finalizationregistry, define-properties, minimatch, is-weakset, estraverse, ansi-styles, is-core-module, graphemer, is-map, js-tokens, acorn-jsx, client-only, @babel, is-number, ast-types-flow, fs.realpath, levn, stop-iteration-iterator, yocto-queue, lodash.merge, has-bigints, @rtsao, side-channel, concat-map, axobject-query, json5, set-function-length, es-shim-unscopables, safe-regex-test, optionator, get-symbol-description, uri-js, object-assign, whatwg-fetch, get-proto, unrs-resolver, cross-spawn, is-data-view, prop-types, espree, is-boolean-object, which-collection, is-regex, eslint, glob, esquery, import-fresh, fast-levenshtein, to-regex-range, streamsearch, @next, object-keys, gopd, busboy, safe-push-apply, for-each, which-typed-array, @heroiclabs, array.prototype.findlast, string-width, minipass, is-callable, is-weakmap, data-view-byte-length, isarray, eslint-import-resolver-typescript, micromatch, is-set, wrappy, eslint-plugin-react, fast-glob, array.prototype.findlastindex, resolve-from, is-extglob, fastq, available-typed-arrays, es-iterator-helpers, string.prototype.matchall, caniuse-lite, @rushstack, merge2, deep-is, es-set-tostringtag, is-string, globalthis, react, @unrs, braces, array.prototype.flatmap, which, side-channel-map, string-width-cjs, ajv, emoji-regex, object-inspect, @eslint-community, typed-array-buffer, type-check, object.fromentries, resolve-pkg-maps, locate-path, object.assign, graceful-fs, async-post-message, fast-deep-equal, shebang-command, debug, glob-parent, source-map-js, isexe, es-object-atoms, language-subtag-registry, get-tsconfig, inflight, path-scurry, object.groupby, dist, fdir, lib, api, builder, functions, webpack, babel, index, benchmarks, .github, workflows, parseargs, internal, examples, test, node, test-utils, compatibility, timers, stream, readline, assert, ts5.6, dns, fs, ts5.0, experimental, image-types, compat, types, navigation-types, legacy, font, testmode, playwright, trace, bin, esm, compiled, shared, cli, telemetry, build, export, pages, proxy, report, stream-utils, async-storage, web, app-render, dev, og, base-http, future, response-cache, api-utils, spec-extension, exports, sandbox, adapters, rules, static, rsc, server-ipc, squoosh, incremental-cache, router-utils, webp, png, avif, mozjpeg, resize, turbopack, normalizers, route-matches, route-matchers, route-modules, route-matcher-managers, route-matcher-providers, route-definitions, helpers, built, request, app, app-route, app-page, pages-api, vendored, contexts, ssr, builtin, file-reader, manifest-loaders, module-loader, page-path, isomorphic, utils, lazy-dynamic, i18n, router, memory, metadata, resolvers, generate, analysis, output, webpack-build, turborepo-access-trace, swc, polyfills, templates, manifests, webpack-config-rules, alias, config, plugins, loaders, blocks, css, images, next-types-plugin, terser-webpack-plugin, wellknown-errors-plugin, css-loader, next-font-loader, next-style-loader, lightningcss-loader, resolve-url-loader, next-route-loader, next-flight-loader, next-image-loader, next-edge-ssr-loader, next-edge-app-route-loader, postcss-loader, runtime, loader, fetch, formatter, routes, tracing, portal, components, router-reducer, react-dev-overlay, reducers, container, styles, hooks, icons, RuntimeError, Toast, Terminal, Dialog, LeftRightDialogHeader, CodeFrame, VersionStalenessInfo, Overlay, hot-linked-text, error-overlay, rotate, is-docker, babel-packages, zod, constants-browserify, anser, browserslist, is-wsl, webpack-sources3, jest-worker, stacktrace-parser, cli-select, tty-browserify, react-experimental, content-type, async-sema, content-disposition, web-vitals, vm-browserify, sass-loader, commander, ci-info, loader-utils3, node-fetch, react-server-dom-turbopack-experimental, bytes, util, @opentelemetry, watchpack, loader-utils2, string-hash, regenerator-runtime, timers-browserify, browserify-zlib, react-server-dom-turbopack, ignore-loader, unistore, string_decoder, superstruct, icss-utils, comment-json, stream-http, postcss-scss, @ampproject, ora, platform, jsonwebtoken, cssnano-simple, fresh, path-browserify, setimmediate, arg, querystring-es3, os-browserify, postcss-preset-env, path-to-regexp, server-only, react-refresh, postcss-plugin-stub-for-cssnano-simple, next-server, postcss-modules-local-by-default, get-orientation, react-server-dom-webpack-experimental, postcss-modules-values, @mswjs, crypto-browserify, lodash.curry, stream-browserify, gzip-size, webpack-sources1, raw-body, postcss-value-parser, find-cache-dir, postcss-modules-scope, @edge-runtime, react-server-dom-webpack, shell-quote, image-size, compression, postcss-modules-extract-imports, ua-parser-js, native-url, source-map08, cookie, neo-async, mini-css-extract-plugin, source-map, schema-utils3, is-animated, async-retry, @vercel, https-proxy-agent, events, terser, node-html-parser, postcss-flexbugs-fixes, https-browserify, http-proxy-agent, postcss-safe-parser, schema-utils2, send, data-uri-to-buffer, domain-browser, conf, css.escape, tar, http-proxy, @hapi, amphtml-validator, devalue, loader-runner, ws, react-dom-experimental, process, edge-runtime, buffer, scheduler-experimental, web-vitals-attribution, cjs, umd, toolbox-optimizer, interceptors, ClientRequest, triples, ponyfill, primitives, cookies, regenerator, hmr, react-refresh-utils, google, local, fontkit, nft, emoji, language, figma, satori, accept, jest, __mocks__, __tests__, data, python, php, constants, shams, commonjs, source, ts41, scarf, example, benchmark, memo-parser, docs, flat, core, exportMap, pathfilter, node_path, dotdot, module_dir, precedence, shadowed_core, resolver, deep_ref, x, y, ccc, aaa, bbb, abc, ymodules, xmodules, zmodules, same_names, symlinked, without_basedir, dot_main, invalid_main, multirepo, dot_slash_main, quux, baz, browser_field, nested_symlinks, incorrect_main, false_main, other_path, foo, _, package, symlink_target, packages, package-b, package-a, mylib, js, eslintrc, configs, config-array, etc, roles, abstract, literal, dpub, graphics, async, non-secure, url-alphabet, fs.walk, fs.stat, fs.scandir, out, providers, readers, mjs, modules, values, expressions, locales, pl, ja, it, cs, ru, zh-cn, zh-tw, pt-br, de, ko, fr, es, tr, counter, _using, _class_call_check, _ts_param, _class_private_method_init, _new_arrow_check, _class_private_field_loose_base, _initializer_define_property, _construct, _array_with_holes, _set, _object_without_properties, _unsupported_iterable_to_array, _write_only_error, _ts_generator, _class_apply_descriptor_destructure, _class_static_private_field_destructure, _read_only_error, _create_class, _class_check_private_static_field_descriptor, _async_to_generator, _async_iterator, _instanceof, _class_private_field_destructure, _ts_values, _class_private_method_get, _iterable_to_array, _class_static_private_field_spec_set, _jsx, _create_super, _class_private_field_set, _to_array, _class_name_tdz_error, _inherits, _non_iterable_rest, _possible_constructor_return, _tagged_template_literal_loose, _array_without_holes, _class_apply_descriptor_get, _class_apply_descriptor_update, _non_iterable_spread, _check_private_redeclaration, _dispose, _interop_require_wildcard, _export_star, _set_prototype_of, _iterable_to_array_limit_loose, _wrap_async_generator, _to_primitive, _class_private_field_init, _class_private_field_loose_key, _ts_decorate, _get_prototype_of, _sliced_to_array, _class_private_field_get, _ts_metadata, _apply_decs_2203_r, _decorate, _create_for_of_iterator_helper_loose, _class_static_private_method_get, _class_private_method_set, _class_static_private_field_spec_get, _iterable_to_array_limit, _object_destructuring_empty, _object_spread, _interop_require_default, _initializer_warning_helper, _get, _is_native_function, _to_consumable_array, _to_property_key, _wrap_native_super, _apply_decorated_descriptor, _super_prop_base, _async_generator, _define_enumerable_properties, _class_static_private_field_update, _skip_first_generator_next, _await_async_generator, _tagged_template_literal, _inherits_loose, _class_check_private_static_access, _object_spread_props, _throw, _defaults, _object_without_properties_loose, _define_property, _class_extract_field_descriptor, _sliced_to_array_loose, _async_generator_delegate, _extends, _assert_this_initialized, _class_private_field_update, _class_apply_descriptor_set, _await_value, _type_of, _is_native_reflect_construct, _update, _array_like_to_array, project-service, tsconfig-utils, typescript-estree, parser, type-utils, scope-manager, eslint-plugin, visitor-keys, generated, create-program, ts-estree, jsx, parseSettings, ts-utils, eslint-utils, ast-utils, ts-eslint, typeOrValueSpecifiers, variable, referencer, scope, definition, prefer-optional-chain-utils, naming-convention-utils, enum-utils, 2022, 2025, 2024, 2023, 2015, operations, 2017, 2019, 2021, 2020, 2018, 2016, 5, tables, BigInt, Number, records, structured-clone, schema, type, module-importer, object-schema, spec, fixtures, cliui, tests, __util__, implicitRoles, es2015, ranges, classes, scc, objects, es5, esnext, schemes, rule-tester, cli-engine, linter, source-code, formatters, code-path-analysis, patterns, unicode, token-store, eslint-plugin-next, env, swc-darwin-arm64, bench, nakama-js, .rpt2_cache, rpt2_44ad53912fca727eedad7e196428ed3de7260eff, rpt2_1578bdcd82cae470804869a3f326b53e35317502, rpt2_29450fbd5bb816e67b24c3019299e1cc7633d49d, rpt2_47b7660d544cf1d2633482c87357d679f5464cb4, syntacticDiagnostics, semanticDiagnostics, code, cache_, cache, empty_main, null_main, missing_index, missing_main, managers, filters, transformers, matchers, Iterator.prototype.take, Iterator.zip, Iterator.prototype.drop, Iterator.prototype.reduce, Iterator.prototype.toArray, Iterator.prototype.every, Iterator.prototype.find, IteratorHelperPrototype, Iterator.prototype.forEach, Iterator.prototype, Iterator.prototype.some, Iterator, Iterator.prototype.map, Iterator.from, Iterator.zipKeyed, Iterator.prototype.filter, Iterator.prototype.constructor, Iterator.prototype.flatMap, WrapForValidIteratorPrototype, aos, Iterator.concat, unpacker, regions, features, eslint-patch, eslint-bulk-suppressions, resolver-binding-darwin-arm64, dot, compile, refs, dotjs, browser, regexpp, es6, json, v7_macos_aarch64_0.106.15, client-development, server-development, vendor-chunks, development, chunks, fonts, Home, ExperienceCard, common, NewExperience, seo, Thumbnails, turquoise, white, black, Realce, Inter, context, workspace, world-templates, world, release-notes, profile, account-details, tutorials, [username], new-experience, storybook, interfaces, session, [id], edit, play, home, buttons, texts, side-menu, inputs, auth, worlds, [...nextauth], abstracts, base, molecules, atoms, layout, organisms, BasePopup, TextInput, AvatarViewer, MetricSummary, MetricLegend, ContextMenu, FilterRows, UserPlan, AvatarIdInput, Tags, CodeInput, TextArea, SearchInputField, ConfirmationModal, PageTransition, SegmentedProgressBar, Tooltip, PlanBadge, Buttons, Input, StatusPill, Icon, CornerButton, IconButtons, ButtonLink, FilteringButton, Button, ButtonCTA, ButtonDecorated, ButtonGeneric, Icons, Switch, SvgImage, Gradient, IframeModalOverlay, Embed, MetricUsagePanel, MobileWarningModal, SideMenu, FeaturedExperiences, RecentExperiences, Engine, ContextMenus, Login, Header, Banner, ReadyPlayerMeModal, SideMenuContent, LearnMoreMenu, HelpMenu, ExperienceMenu, EmailConfirmation, LoginHoverCard, LoginPopup, tools, .k8s, postgres, AHSAT, afs, nakama, aes, logs, uadc, afs_request, certs, nakama_request, http, email_request, db, vendor, v1, sql, gopkg.in, gorm.io, google.golang.org, golang.org, github.com, codeberg.org, alexcesaro, yaml.v2, quotedprintable.v3, gorm, driver, datatypes, migrator, logger, callbacks, clause, mysql, protobuf, proto, reflect, encoding, protoregistry, protoreflect, protoiface, order, flags, strs, pragma, genid, errors, detrand, messageset, protowire, crypto, net, sys, text, pbkdf2, sha3, idna, http2, hpack, h2c, httpguts, cpu, unix, width, runes, cases, secure, transform, bidi, norm, tag, compact, precis, bidirule, pelletier, gin-gonic, go-sql-driver, json-iterator, gin-contrib, jinzhu, go-mail, ugorji, leodido, modern-go, go-playground, goccy, jackc, mattn, go-toml, v2, tracker, ast, danger, gin, render, binding, bytesconv, go, uuid, sse, cors, inflection, now, mail, codec, go-urn, reflect2, concurrent, validator, universal-translator, currency, v10, go-json, encoder, decoder, vm_color_indent, vm_color, vm_indent, vm, pgproto3, pgconn, pgservicefile, pgtype, pgio, chunkreader, pgpassfile, pgx, stmtcache, ctxwatch, v4, stdlib, sanitize, go-isatty, go-pdf, fpdf, font_embed, filesystem, avatars, assets, faws, yaml.v3, arch, html, atom, x86, x86asm, klauspost, twitchyliquid64, cloudwego, aws, gabriel-vasile, bytedance, unstable, characters, cpuid, golang-asm, obj, bio, asm, unsafeheader, objabi, dwarf, goobj, ppc64, s390x, wasm, mips, arm, riscv, arm64, iasm, base64x, expr, x86_64, scim, pq, scram, oid, aws-sdk-go-v2, smithy-go, feature, service, credentials, middleware, timeconv, strings, endpoints, v4a, awsutil, configsources, ini, sdk, shareddefaults, rand, sync, sdkio, awsrulesfn, smithy, singleflight, signer, transport, retry, arn, protocol, ratelimit, defaults, private, metrics, eventstream, restjson, xml, query, eventstreamapi, s3, ec2, manager, imds, sso, ssooidc, sts, customizations, accept-encoding, presigned-url, checksum, s3shared, ssocreds, ec2rolecreds, endpointcreds, stscreds, processcreds, io, document, time, ptr, waiter, logging, rulesfn, bearer, httpbinding, lru, requestcompression, mimetype, magic, charset, sonic, utf8, unquote, option, native, rt, jit, caching, avx2, avx, neon, abi, ts-modules, audc, nakama_db, twitchpl, agora, chatbot, models, ahsat, als, mumble, world_matches, world_data, layeh.com, descriptorpb, known, wrapperspb, timestamppb, protodesc, protoimpl, impl, filedesc, descopts, filetype, version, descfmt, set, defval, prototext, mitchellh, grafov, hashicorp, golang, shiena, beego, heroiclabs, AgoraIO-Community, pkg, mapstructure, m3u8, golang-lru, simplelru, ansicolor, orm, clauses, hints, order_clause, nakama-common, rtapi, go-tokenbuilder, rtctokenbuilder, accesstoken, gumble, gumbleutil, MumbleProto, varint, database, libs, guards, domain, entities, services, infra, use-cases, dto, guest-session, oauth, get-account, start-login, login, factory, decorators, apiClient, repository, updateWorldRequest, createWorldRequest, get-user-worlds, get-user-features, delete-world, update-world, upload-thumbnail, getWorldMeta, duplicate-world, getWorldList, get-user-profile, update-display-name, create-world, interface, rpc, controllers, set-user-avatar, authenticate-guest, claim-account, claim-google, get-user-avatar, link-email, get-user-account, repositories, usecase, send-email, bootloader, addons, codegen, export_templates, script_templates, .import, desktop_dev, godot-xr-tools, com.example.world, com.heroiclabs.nakama, gut, color_palettes, overrides, misc, materials, staging, interactables, xr, audio, user_settings, hands, effects, editor, player, loading_screen, highlight, grab_points, keyboard, poses, textures, scenes, model, animations, lowpoly, highpoly, right, left, resource_queue, poke, loading, inspector, context_menues, premades, socket, gui, double_templates, gut_bootloader, stubs, test_globals, interactive_tests, test_audio_chat, clients, temp, world_launcher, GamePlatform_Logo_and_Font, desktop, bot, world_builder, secondary, vr-module, color_picker, map_system, gizmo_system, input_system, chat_system, inventory, singleton, map_icons, portals, gizmo_types, gizmo_configs, selection_scenes, custom_inputs, camera_states, ui, chat, respawn, world_handle, world_handle_overlays, ready_player_me, gameplatform_Logos, gameplatform Logos, Scalable_logo_Black, Scalable_logo_White, Scalable logo White, Scalable logo Black, native_world_launcher, game_hud, local_desktop_character_feature, html_world_builder_launcher, directional_light_gizmo, point_light_gizmo, spotlight_gizmo, singletons, feature_groups, na-styleboxes, text_edits, scroll, adaptive_ui, mouse_handler, admin_panel, video_player, panels, dropdown_container, navigation, async_ui, styleboxes, 3d_ui, drag, avatar_screen, mouse, adaptive_fonts, dashboard, button, blur, menus, asset_placer, dropdowns, gradients, ui_textures, sliders, themes, slideshow, onboarding, utility, adaptive_controls, resizable_container, tr_details_side_panel, lb_details_panel, tl_tr_br_panel, 4dot_processing_effect, gizmo, toggle_button, profile_button, primitive_icons, login_panel_background, main_menu, preferences, search, world_list, onboarding_element, account, main_menu_overlays, help, search_bar, thumbnail_world_element, world_list_minimized, delete_account, change_password, email, privacy_and_security, tutorial, map_hud, performance_ui, chat_hud, respawn_ui, dm_list, online_users, chat_stack, chat_settings_header, asset_lister, dialog, texture_viewer, context_menu, 3d, commons, resources, main, behavior, media, compiler, trigger_actions, default, instructions, operators, video, state, behavior_components, gpu_test, gameplatform_visuals, particles, test_file, shaders, reconnection_popup, builder_server, text2speech, SethCharacterScripts, States, lato, noto, inter, satoshi, archivo, BuilderFonts, optimization_ui, world_builder_overlays, world_info, ai_tools, data_inspectors, links, node_list, custom_property_inspectors, object_tree, inventory_pages, object_details_page, content_page, sounds, smartobjects, videos, roles_and_permissions, autosave_backup, components2, thumbnail, controller, ui_icons, ui_images, component_icons, behavior_icons, no_export, character, contracts, address, custom_html_shells, actions, user_profile, web3, SethCharacter, Character Meshes, player_controller, avatar, character_controller, player_ui, player_assets, avatar_assets, default_avatar, variations_1_anims, default_anims, steps, jumps, external
+

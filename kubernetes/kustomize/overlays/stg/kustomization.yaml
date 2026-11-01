@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: gameplatform-stg
+
+bases:
+  - ../../base
+
+resources:
+  - namespace-stg.yaml
+  - ingress-stg.yaml
+
+patchesStrategicMerge:
+  - configmap-stg.yaml
+
+commonLabels:
+  environment: stg
+  app.kubernetes.io/environment: stg
+
+images:
+  - name: nakama
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-stg-images/nakama
+    newTag: stg
+  - name: lobby
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-stg-images/lobby
+    newTag: stg
+  - name: lobby-backend
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-stg-images/lobby-backend
+    newTag: stg
+  - name: afs
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-stg-images/afs
+    newTag: stg
+  - name: ahsat
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-stg-images/ahsat
+    newTag: stg
+  - name: aes
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-stg-images/aes
+    newTag: stg
+  - name: ais
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-stg-images/ais
+    newTag: stg

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: promtail
+description: Promtail log collector for GamePlatform (sends pod logs to Loki)
+type: application
+version: 1.0.0
+appVersion: "3.4.2"
+
+dependencies:
+  - name: promtail
+    version: "6.16.6"
+    repository: https://grafana.github.io/helm-charts

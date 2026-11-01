@@ -1,0 +1,166 @@
+# Gateway configuration for STG environment
+# HTTPS on custom ports like AWS ALB
+
+namespace: gameplatform-stg
+gatewayClassName: gke-l7-global-external-managed
+tlsSecretName: stg-gameplatform-tls
+
+# Service name prefix (changes per environment)
+servicePrefix: game-platform-stg
+
+# Gateways - one per service/port (GKE limitation: one HTTPS listener per Gateway)
+gateways:
+  # Standard HTTPS on 443 for lobby (browser access)
+  gw-https:
+    port: 443
+    listenerName: https
+
+  # Nakama game server
+  gw-nakama:
+    port: 7350
+    listenerName: nakama
+
+  # AHSAT analytics
+  gw-ahsat:
+    port: 6969
+    listenerName: ahsat
+
+  # AFS file service
+  gw-afs:
+    port: 9933
+    listenerName: afs
+
+  # AIS AI service
+  gw-ais:
+    port: 5050
+    listenerName: ais
+
+  # AES email service
+  gw-aes:
+    port: 1988
+    listenerName: aes
+
+  # APS payments service
+  gw-aps:
+    port: 4444
+    listenerName: aps
+
+  # Lobby frontend (custom port)
+  gw-lobby:
+    port: 3000
+    listenerName: lobby
+
+  # Lobby backend API
+  gw-lobby-backend:
+    port: 3001
+    listenerName: lobby-backend
+
+# HTTPRoutes - maps gateways to backend services
+routes:
+  # Nakama
+  nakama-route:
+    gatewayName: gw-nakama
+    sectionName: nakama
+    backendService: game-platform-stg-nakama
+    backendPort: 7350
+
+  # AHSAT
+  ahsat-route:
+    gatewayName: gw-ahsat
+    sectionName: ahsat
+    backendService: game-platform-stg-ahsat
+    backendPort: 6969
+
+  # AFS
+  afs-route:
+    gatewayName: gw-afs
+    sectionName: afs
+    backendService: game-platform-stg-afs
+    backendPort: 9933
+
+  # AIS
+  ais-route:
+    gatewayName: gw-ais
+    sectionName: ais
+    backendService: game-platform-stg-ais
+    backendPort: 5050
+
+  # AES
+  aes-route:
+    gatewayName: gw-aes
+    sectionName: aes
+    backendService: game-platform-stg-aes
+    backendPort: 1988
+
+  # APS
+  aps-route:
+    gatewayName: gw-aps
+    sectionName: aps
+    backendService: game-platform-stg-aps
+    backendPort: 4444
+
+  # Lobby on custom port 3000
+  lobby-route:
+    gatewayName: gw-lobby
+    sectionName: lobby
+    backendService: game-platform-stg-lobby
+    backendPort: 3000
+
+  # Lobby on standard HTTPS 443 (for browser access via app.stg-gameplatform.example.com)
+  # Uses wildcard DNS *.stg-gameplatform.example.com → gw-https
+  lobby-https-route:
+    gatewayName: gw-https
+    sectionName: https
+    hostname: app.stg-gameplatform.example.com
+    backendService: game-platform-stg-lobby
+    backendPort: 3000
+
+  # Lobby backend on custom port 3001
+  lobby-backend-route:
+    gatewayName: gw-lobby-backend
+    sectionName: lobby-backend
+    backendService: game-platform-stg-lobby-backend
+    backendPort: 3001
+
+  # Lobby backend on standard HTTPS 443 (for API access via api.stg-gameplatform.example.com)
+  # Uses wildcard DNS *.stg-gameplatform.example.com → gw-https
+  lobby-backend-https-route:
+    gatewayName: gw-https
+    sectionName: https
+    hostname: api.stg-gameplatform.example.com
+    backendService: game-platform-stg-lobby-backend
+    backendPort: 3001
+
+# HealthCheckPolicy - custom health check paths for each service
+healthCheckPolicies:
+  nakama-healthcheck:
+    serviceName: game-platform-stg-nakama
+    path: /healthcheck
+
+  ahsat-healthcheck:
+    serviceName: game-platform-stg-ahsat
+    path: /ping
+
+  afs-healthcheck:
+    serviceName: game-platform-stg-afs
+    path: /ping
+
+  ais-healthcheck:
+    serviceName: game-platform-stg-ais
+    path: /health
+
+  aes-healthcheck:
+    serviceName: game-platform-stg-aes
+    path: /health
+
+  aps-healthcheck:
+    serviceName: game-platform-stg-aps
+    path: /v0/aps/ping
+
+  lobby-healthcheck:
+    serviceName: game-platform-stg-lobby
+    path: /
+
+  lobby-backend-healthcheck:
+    serviceName: game-platform-stg-lobby-backend
+    path: /health

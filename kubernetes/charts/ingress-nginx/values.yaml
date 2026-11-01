@@ -1,0 +1,14 @@
+ingress-nginx:
+  controller:
+    service:
+      annotations:
+        cloud.google.com/load-balancer-type: "Internal"
+        networking.gke.io/load-balancer-type: "Internal"
+    ingressClassResource:
+      name: nginx
+      default: true
+    watchIngressWithoutClass: true
+    # Enable Cross-Origin-Resource-Policy header for all responses
+    # Required for Godot HTML5 client which uses SharedArrayBuffer (COEP: require-corp)
+    addHeaders:
+      Cross-Origin-Resource-Policy: "cross-origin"

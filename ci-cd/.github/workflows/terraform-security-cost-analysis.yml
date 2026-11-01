@@ -1,0 +1,419 @@
+name: 🛡️💰 Terraform Security & Cost Analysis
+
+on:
+  workflow_call:
+    inputs:
+      terraform_directory:
+        description: 'Directory containing Terraform files'
+        required: true
+        type: string
+      environment:
+        description: 'Environment name (dev, stg, live, pr-xxx)'
+        required: true
+        type: string
+      pr_number:
+        description: 'Pull request number'
+        required: false
+        type: string
+      atlantis_enabled:
+        description: 'Enable Atlantis integration'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      INFRACOST_API_KEY:
+        description: 'Infracost API key for cost analysis'
+        required: true
+      AWS_ACCESS_KEY_ID:
+        description: 'AWS access key for authentication'
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        description: 'AWS secret key for authentication'
+        required: true
+      LIVE_AWS_ACCESS_KEY_ID:
+        description: 'AWS access key for production environment'
+        required: false
+      LIVE_AWS_SECRET_ACCESS_KEY:
+        description: 'AWS secret key for production environment'
+        required: false
+      ATLANTIS_TOKEN:
+        description: 'GitHub token for Atlantis operations'
+        required: false
+
+    outputs:
+      security_status:
+        description: 'Security scan status (pass/warning/fail)'
+        value: ${{ jobs.security-analysis.outputs.status }}
+      cost_estimate:
+        description: 'Monthly cost estimate in USD'
+        value: ${{ jobs.cost-analysis.outputs.monthly_cost }}
+      report_url:
+        description: 'URL to detailed report'
+        value: ${{ jobs.generate-report.outputs.report_url }}
+
+env:
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: '1.5.7'
+  TFSEC_VERSION: '1.28.5'
+  INFRACOST_VERSION: '0.10.29'
+
+jobs:
+  # Initialize and validate Terraform configuration
+  terraform-init:
+    name: 🚀 Initialize Terraform
+    runs-on: ubuntu-latest
+    outputs:
+      terraform_valid: ${{ steps.validate.outputs.valid }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ inputs.environment == 'live' && secrets.LIVE_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ inputs.environment == 'live' && secrets.LIVE_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        id: init
+        working-directory: ${{ inputs.terraform_directory }}
+        run: |
+          terraform init -backend=false
+          echo "init_status=$?" >> $GITHUB_OUTPUT
+
+      - name: Terraform Validate
+        id: validate
+        working-directory: ${{ inputs.terraform_directory }}
+        run: |
+          terraform validate
+          if [ $? -eq 0 ]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "valid=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v3
+        with:
+          path: ${{ inputs.terraform_directory }}/.terraform
+          key: ${{ runner.os }}-terraform-${{ hashFiles('${{ inputs.terraform_directory }}/**/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-
+
+  # Security analysis with tfsec
+  security-analysis:
+    name: 🛡️ Security Scan (tfsec)
+    runs-on: ubuntu-latest
+    needs: terraform-init
+    if: needs.terraform-init.outputs.terraform_valid == 'true'
+    outputs:
+      status: ${{ steps.security-check.outputs.status }}
+      critical_issues: ${{ steps.security-check.outputs.critical_issues }}
+      high_issues: ${{ steps.security-check.outputs.high_issues }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup tfsec
+        run: |
+          curl -sSLo tfsec https://github.com/aquasecurity/tfsec/releases/download/v${{ env.TFSEC_VERSION }}/tfsec-linux-amd64
+          chmod +x tfsec
+          sudo mv tfsec /usr/local/bin/
+
+      - name: Run tfsec security scan
+        id: tfsec
+        working-directory: ${{ inputs.terraform_directory }}
+        run: |
+          echo "🛡️ Running tfsec security analysis..."
+          
+          # Run tfsec with configuration file
+          tfsec . \
+            --config-file=../../.tfsec/config.yaml \
+            --format=json \
+            --out=tfsec-results.json \
+            --format=markdown \
+            --out=tfsec-results.md \
+            --format=sarif \
+            --out=tfsec-results.sarif \
+            --force-all-dirs \
+            --minimum-severity=MEDIUM || echo "Security issues found"
+
+      - name: Parse security results
+        id: security-check
+        working-directory: ${{ inputs.terraform_directory }}
+        run: |
+          if [ -f "tfsec-results.json" ]; then
+            CRITICAL=$(jq '[.results[] | select(.severity == "CRITICAL")] | length' tfsec-results.json || echo "0")
+            HIGH=$(jq '[.results[] | select(.severity == "HIGH")] | length' tfsec-results.json || echo "0")
+            MEDIUM=$(jq '[.results[] | select(.severity == "MEDIUM")] | length' tfsec-results.json || echo "0")
+            
+            echo "critical_issues=$CRITICAL" >> $GITHUB_OUTPUT
+            echo "high_issues=$HIGH" >> $GITHUB_OUTPUT
+            echo "medium_issues=$MEDIUM" >> $GITHUB_OUTPUT
+            
+            # Determine overall status
+            if [ "$CRITICAL" -gt 0 ]; then
+              echo "status=fail" >> $GITHUB_OUTPUT
+              echo "🔴 Critical security issues found!"
+            elif [ "$HIGH" -gt 0 ]; then
+              echo "status=warning" >> $GITHUB_OUTPUT
+              echo "🟡 High security issues found!"
+            else
+              echo "status=pass" >> $GITHUB_OUTPUT
+              echo "✅ No critical or high security issues found"
+            fi
+          else
+            echo "status=error" >> $GITHUB_OUTPUT
+            echo "❌ Failed to generate security report"
+          fi
+
+      - name: Upload tfsec results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tfsec-results-${{ inputs.environment }}
+          path: |
+            ${{ inputs.terraform_directory }}/tfsec-results.*
+          retention-days: 30
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always() && hashFiles('${{ inputs.terraform_directory }}/tfsec-results.sarif') != ''
+        with:
+          sarif_file: ${{ inputs.terraform_directory }}/tfsec-results.sarif
+          category: tfsec
+
+  # Cost analysis with infracost
+  cost-analysis:
+    name: 💰 Cost Analysis (infracost)
+    runs-on: ubuntu-latest
+    needs: terraform-init
+    if: needs.terraform-init.outputs.terraform_valid == 'true'
+    outputs:
+      monthly_cost: ${{ steps.cost-check.outputs.monthly_cost }}
+      cost_status: ${{ steps.cost-check.outputs.status }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ inputs.environment == 'live' && secrets.LIVE_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ inputs.environment == 'live' && secrets.LIVE_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v2
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate Terraform plan for costing
+        working-directory: ${{ inputs.terraform_directory }}
+        run: |
+          terraform init
+          terraform plan -out=tfplan.binary
+          terraform show -json tfplan.binary > plan.json
+
+      - name: Run Infracost cost analysis
+        id: infracost
+        working-directory: ${{ inputs.terraform_directory }}
+        run: |
+          echo "💰 Running infracost analysis..."
+          
+          # Run infracost with configuration
+          infracost breakdown \
+            --config-file=../../.infracost/config.yml \
+            --usage-file=../../.infracost/usage.yml \
+            --path=plan.json \
+            --format=json \
+            --out-file=infracost-results.json
+            
+          infracost breakdown \
+            --config-file=../../.infracost/config.yml \
+            --usage-file=../../.infracost/usage.yml \
+            --path=plan.json \
+            --format=table \
+            --out-file=infracost-results.txt
+            
+          infracost breakdown \
+            --config-file=../../.infracost/config.yml \
+            --usage-file=../../.infracost/usage.yml \
+            --path=plan.json \
+            --format=html \
+            --out-file=infracost-results.html
+
+      - name: Parse cost results and check thresholds
+        id: cost-check
+        working-directory: ${{ inputs.terraform_directory }}
+        run: |
+          if [ -f "infracost-results.json" ]; then
+            MONTHLY_COST=$(jq -r '.totalMonthlyCost // "0"' infracost-results.json)
+            HOURLY_COST=$(jq -r '.totalHourlyCost // "0"' infracost-results.json)
+            
+            echo "monthly_cost=$MONTHLY_COST" >> $GITHUB_OUTPUT
+            echo "hourly_cost=$HOURLY_COST" >> $GITHUB_OUTPUT
+            
+            # Run cost threshold check
+            ../../scripts/check-cost-thresholds.sh infracost-results.json "${{ inputs.environment }}"
+            THRESHOLD_STATUS=$?
+            
+            if [ $THRESHOLD_STATUS -eq 0 ]; then
+              echo "status=pass" >> $GITHUB_OUTPUT
+            else
+              echo "status=warning" >> $GITHUB_OUTPUT
+            fi
+            
+            echo "💰 Monthly cost estimate: \$$MONTHLY_COST"
+          else
+            echo "status=error" >> $GITHUB_OUTPUT
+            echo "monthly_cost=0" >> $GITHUB_OUTPUT
+            echo "❌ Failed to generate cost estimate"
+          fi
+
+      - name: Upload infracost results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: infracost-results-${{ inputs.environment }}
+          path: |
+            ${{ inputs.terraform_directory }}/infracost-results.*
+            ${{ inputs.terraform_directory }}/plan.json
+          retention-days: 30
+
+  # Generate comprehensive report
+  generate-report:
+    name: 📊 Generate Comprehensive Report
+    runs-on: ubuntu-latest
+    needs: [security-analysis, cost-analysis]
+    if: always() && (needs.security-analysis.result != 'cancelled' || needs.cost-analysis.result != 'cancelled')
+    outputs:
+      report_url: ${{ steps.upload-report.outputs.report_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download security artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: tfsec-results-${{ inputs.environment }}
+          path: ${{ inputs.terraform_directory }}/
+
+      - name: Download cost artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: infracost-results-${{ inputs.environment }}
+          path: ${{ inputs.terraform_directory }}/
+
+      - name: Generate comprehensive report
+        working-directory: ${{ inputs.terraform_directory }}
+        run: |
+          echo "📊 Generating comprehensive analysis report..."
+          
+          # Use the existing report generation script
+          chmod +x ../../scripts/generate-pr-report.sh
+          ../../scripts/generate-pr-report.sh \
+            "$(pwd)" \
+            "${{ inputs.environment }}" \
+            "${{ inputs.pr_number || 'manual' }}" \
+            "${{ github.actor }}"
+
+      - name: Upload comprehensive report
+        id: upload-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-report-${{ inputs.environment }}
+          path: |
+            ${{ inputs.terraform_directory }}/pr-report.md
+            ${{ inputs.terraform_directory }}/infracost-results.html
+          retention-days: 30
+
+      - name: Comment on PR (if PR context)
+        if: inputs.pr_number && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.ATLANTIS_GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const reportPath = '${{ inputs.terraform_directory }}/pr-report.md';
+            
+            if (fs.existsSync(reportPath)) {
+              const report = fs.readFileSync(reportPath, 'utf8');
+              
+              await github.rest.issues.createComment({
+                issue_number: ${{ inputs.pr_number }},
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: report
+              });
+            }
+
+  # Summary job for status checks
+  analysis-summary:
+    name: 📋 Analysis Summary
+    runs-on: ubuntu-latest
+    needs: [security-analysis, cost-analysis, generate-report]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## 🛡️💰 Terraform Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Security status
+          SECURITY_STATUS="${{ needs.security-analysis.outputs.status }}"
+          CRITICAL_ISSUES="${{ needs.security-analysis.outputs.critical_issues }}"
+          HIGH_ISSUES="${{ needs.security-analysis.outputs.high_issues }}"
+          
+          case $SECURITY_STATUS in
+            "pass") echo "🟢 **Security**: All checks passed" >> $GITHUB_STEP_SUMMARY ;;
+            "warning") echo "🟡 **Security**: Warning - $HIGH_ISSUES high issues found" >> $GITHUB_STEP_SUMMARY ;;
+            "fail") echo "🔴 **Security**: Failed - $CRITICAL_ISSUES critical issues found" >> $GITHUB_STEP_SUMMARY ;;
+            *) echo "⚪ **Security**: Status unavailable" >> $GITHUB_STEP_SUMMARY ;;
+          esac
+          
+          # Cost status
+          MONTHLY_COST="${{ needs.cost-analysis.outputs.monthly_cost }}"
+          COST_STATUS="${{ needs.cost-analysis.outputs.cost_status }}"
+          
+          case $COST_STATUS in
+            "pass") echo "🟢 **Cost**: \$$MONTHLY_COST/month - Within thresholds" >> $GITHUB_STEP_SUMMARY ;;
+            "warning") echo "🟡 **Cost**: \$$MONTHLY_COST/month - Above warning threshold" >> $GITHUB_STEP_SUMMARY ;;
+            *) echo "⚪ **Cost**: Estimate unavailable" >> $GITHUB_STEP_SUMMARY ;;
+          esac
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📊 **Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "🗂️ **Directory**: ${{ inputs.terraform_directory }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Set job status
+        run: |
+          SECURITY_STATUS="${{ needs.security-analysis.outputs.status }}"
+          COST_STATUS="${{ needs.cost-analysis.outputs.cost_status }}"
+          
+          # Fail if security critical issues found
+          if [ "$SECURITY_STATUS" = "fail" ]; then
+            echo "❌ Critical security issues found - failing job"
+            exit 1
+          fi
+          
+          # Continue with warnings
+          if [ "$SECURITY_STATUS" = "warning" ] || [ "$COST_STATUS" = "warning" ]; then
+            echo "⚠️ Analysis completed with warnings"
+            exit 0
+          fi
+          
+          echo "✅ All analyses passed successfully"

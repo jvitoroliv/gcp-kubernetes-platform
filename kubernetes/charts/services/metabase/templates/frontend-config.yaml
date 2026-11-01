@@ -1,0 +1,12 @@
+{{- if .Values.frontendConfig.enabled -}}
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: {{ .Values.frontendConfig.name }}
+  labels:
+    {{- include "metabase.labels" . | nindent 4 }}
+spec:
+  redirectToHttps:
+    enabled: {{ .Values.frontendConfig.redirectToHttps }}
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT
+{{- end }}

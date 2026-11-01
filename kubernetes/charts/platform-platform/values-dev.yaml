@@ -1,0 +1,523 @@
+# Development environment values for game-platform
+# Deployed to namespace: gameplatform-dev
+# CI/CD automatically updates image tags in this file.
+#
+# Usage:
+#   helm install game-platform . -n gameplatform-dev -f values.yaml -f values-dev.yaml
+
+global:
+  imageRegistry: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images
+  imagePullPolicy: IfNotPresent
+  domain: dev-gameplatform.example.com
+  # GitHub Environment — enables deployment protection rules and secrets scoping
+  environment: dev
+
+  # Database configuration
+  database:
+    secretName: postgres-credentials
+    host: "10.148.0.3"
+
+  # External Secrets Operator
+  externalSecrets:
+    enabled: true
+    clusterSecretStore: gcp-secret-manager
+
+  # Monitoring
+  monitoring:
+    enabled: true
+    prometheus:
+      enabled: true
+    grafana:
+      enabled: true
+
+  # Ingress (nginx with Internal Load Balancer + TLS)
+  ingress:
+    className: nginx
+    annotations: {}
+    tls:
+      enabled: true
+      secretName: dev-gameplatform-tls
+
+# Service-specific configurations
+nakama:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "dev-b29c33f"
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: enabled
+  podSecurityContext:
+    runAsNonRoot: false
+  securityContext:
+    runAsUser: 0
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  database:
+    cloudSqlProxy:
+      enabled: false
+  # Service annotations for GKE ALB integration
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "nakama-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/enable-cors: "true"
+      nginx.ingress.kubernetes.io/cors-allow-origin: "https://lobby.dev-gameplatform.example.com"
+      nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PUT, POST, DELETE, PATCH, OPTIONS"
+      nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization,Accept"
+      nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    hosts:
+      - host: nakama.dev-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 7350
+    tls:
+      - secretName: dev-gameplatform-tls
+        hosts:
+          - nakama.dev-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: NAKAMA_DATABASE_ADDRESS
+        remoteKey: project-dev-db-nakama-connection
+      - secretKey: DB_HOST
+        remoteKey: project-dev-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-dev-db-nakama-password
+      - secretKey: NAKAMA_HTTP_KEY
+        remoteKey: project-dev-nakama-http-key
+      - secretKey: NAKAMA_SERVER_KEY
+        remoteKey: project-dev-nakama-server-key
+      - secretKey: AES_KEY
+        remoteKey: project-dev-aes-encryption-key
+
+lobby:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "dev-66c346d"
+  serviceMonitor:
+    enabled: true
+    path: /metrics
+    labels:
+      prometheus: enabled
+  podSecurityContext:
+    runAsNonRoot: false
+  securityContext:
+    runAsUser: 0
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - DAC_OVERRIDE
+        - CHOWN
+        - FOWNER
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  # Service annotations for GKE ALB integration
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "lobby-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: lobby.dev-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 3000
+    tls:
+      - secretName: dev-gameplatform-tls
+        hosts:
+          - lobby.dev-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: NEXTAUTH_SECRET
+        remoteKey: project-dev-nextauth-secret
+      - secretKey: GOOGLE_CLIENT_ID
+        remoteKey: project-dev-google-client-id
+      - secretKey: GOOGLE_CLIENT_SECRET
+        remoteKey: project-dev-google-client-secret
+
+lobby-backend:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "dev-5b4031e"
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: enabled
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  # Service annotations for GKE ALB integration
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "lobby-backend-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: lobby-backend.dev-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 3001
+    tls:
+      - secretName: dev-gameplatform-tls
+        hosts:
+          - lobby-backend.dev-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-dev-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-dev-db-nakama-password
+      - secretKey: NAKAMA_SERVER_KEY
+        remoteKey: project-dev-nakama-server-key
+      - secretKey: NAKAMA_HTTP_KEY
+        remoteKey: project-dev-nakama-http-key
+      - secretKey: AES_API_KEY
+        remoteKey: project-dev-aes-api-key
+      - secretKey: SMTP_USER
+        remoteKey: project-dev-smtp-user
+      - secretKey: SMTP_PASSWORD
+        remoteKey: project-dev-smtp-password
+      - secretKey: OAUTH_CLIENT_ID
+        remoteKey: project-dev-google-client-id
+      - secretKey: REDIS_HOST
+        remoteKey: project-dev-redis-host
+      - secretKey: REDIS_PORT
+        remoteKey: project-dev-redis-port
+
+afs:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "dev-4bfdd92"
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: enabled
+  # Workload Identity for native GCS access
+  serviceAccount:
+    create: true
+    annotations:
+      iam.gke.io/gcp-service-account: project-dev-afs@project-nonprod-env.iam.gserviceaccount.com
+  # Service annotations for GKE ALB integration
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "afs-backend-config"}'
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: afs.dev-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 9933
+    tls:
+      - secretName: dev-gameplatform-tls
+        hosts:
+          - afs.dev-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-dev-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-dev-db-nakama-password
+
+ahsat:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "dev-bbdf242"
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: enabled
+  # Service annotations for GKE ALB integration
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "ahsat-backend-config"}'
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: ahsat.dev-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 6969
+    tls:
+      - secretName: dev-gameplatform-tls
+        hosts:
+          - ahsat.dev-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-dev-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-dev-db-nakama-password
+      - secretKey: NK_HTTP_KEY
+        remoteKey: project-dev-nakama-http-key
+      - secretKey: AI_API_KEY
+        remoteKey: project-dev-ai-api-key
+      - secretKey: AIS_APP_SECRET
+        remoteKey: project-dev-ais-app-secret
+      - secretKey: AES_API_KEY
+        remoteKey: project-dev-aes-api-key
+
+aes:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "dev-4bfdd92"
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: enabled
+  # Service annotations for GKE ALB integration
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "aes-backend-config"}'
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: aes.dev-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 1988
+    tls:
+      - secretName: dev-gameplatform-tls
+        hosts:
+          - aes.dev-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: AES_API_KEY
+        remoteKey: project-dev-aes-api-key
+      - secretKey: SMTP_USER
+        remoteKey: project-dev-smtp-user
+      - secretKey: SMTP_PASSWORD
+        remoteKey: project-dev-smtp-password
+
+ais:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "dev-86dd49b"
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: enabled
+  # Workload Identity for native GCS access
+  serviceAccount:
+    create: true
+    annotations:
+      iam.gke.io/gcp-service-account: project-dev-ais@project-nonprod-env.iam.gserviceaccount.com
+  # Service annotations for GKE ALB integration
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "ais-backend-config"}'
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: ais.dev-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 5050
+    tls:
+      - secretName: dev-gameplatform-tls
+        hosts:
+          - ais.dev-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-dev-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-dev-db-nakama-password
+      - secretKey: AIS_APP_SECRET
+        remoteKey: project-dev-ais-app-secret
+      - secretKey: PIAPI_KEY
+        remoteKey: project-dev-piapi-key
+      - secretKey: GEMINI_API_KEY
+        remoteKey: project-dev-gemini-api-key
+
+aps:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "dev-01c5c40"
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: enabled
+  # Service annotations for GKE ALB integration
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "aps-backend-config"}'
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: aps.dev-gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 4444
+    tls:
+      - secretName: dev-gameplatform-tls
+        hosts:
+          - aps.dev-gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: YUNO_PUBLIC_KEY
+        remoteKey: project-dev-yuno-public-key
+      - secretKey: YUNO_PRIVATE_KEY
+        remoteKey: project-dev-yuno-private-key
+      - secretKey: YUNO_ACCOUNT_ID
+        remoteKey: project-dev-yuno-account-id

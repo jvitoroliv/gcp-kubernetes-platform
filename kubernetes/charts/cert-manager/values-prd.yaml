@@ -1,0 +1,79 @@
+cert-manager:
+  installCRDs: true
+
+  # Service Account for Workload Identity (DNS-01 challenge)
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: project-prd-cert-manager@project-prd-env.iam.gserviceaccount.com
+
+  # Resource requests/limits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  # Webhook configuration
+  webhook:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
+
+  # CA Injector configuration
+  cainjector:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 50m
+        memory: 128Mi
+
+  # Prometheus metrics
+  prometheus:
+    enabled: true
+
+# Let's Encrypt issuer configuration
+letsencrypt:
+  enabled: true
+  server: https://acme-v02.api.letsencrypt.org/directory
+  email: infra@gameplatform.example.com
+  # DNS-01 solver using Google Cloud DNS
+  cloudDNS:
+    project: project-prd-env
+    # Zone for gameplatform.example.com (must match Cloud DNS zone name)
+    hostedZoneName: project-prd-zone
+
+# Self-signed issuer (disabled when using Let's Encrypt)
+selfSignedIssuer:
+  enabled: false
+
+# Certificates per environment
+certificates:
+  dev:
+    enabled: false
+    namespace: gameplatform-dev
+    domain: dev-gameplatform.example.com
+    dnsNames:
+      - "*.dev-gameplatform.example.com"
+      - "dev-gameplatform.example.com"
+  stg:
+    enabled: false
+    namespace: gameplatform-stg
+    domain: stg-gameplatform.example.com
+    dnsNames:
+      - "*.stg-gameplatform.example.com"
+      - "stg-gameplatform.example.com"
+  prd:
+    enabled: true
+    namespace: gameplatform-prd
+    domain: gameplatform.example.com
+    dnsNames:
+      - "*.gameplatform.example.com"
+      - "gameplatform.example.com"

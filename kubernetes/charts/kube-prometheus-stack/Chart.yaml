@@ -1,0 +1,11 @@
+apiVersion: v2
+name: kube-prometheus-stack
+description: Prometheus monitoring stack for GamePlatform
+type: application
+version: 1.0.0
+appVersion: "v0.82.0"
+
+dependencies:
+  - name: kube-prometheus-stack
+    version: "72.6.2"
+    repository: https://prometheus-community.github.io/helm-charts

@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-dns-config-stg
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/example-gamedev-org/platform-kubernetes-infrastructure.git
+    targetRevision: main
+    path: charts/kube-dns-config
+    helm:
+      releaseName: kube-dns-config
+      values: |
+        stubDomains:
+          "dev.gameplatform": ["169.254.169.254"]
+          "stg.gameplatform": ["169.254.169.254"]
+          "runners.gameplatform": ["169.254.169.254"]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true

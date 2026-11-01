@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-postgres
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: postgres
+    instance: {{ .Release.Name }}
+spec:
+  serviceName: {{ .Release.Name }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: postgres
+        instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-postgres
+      initContainers:
+        - name: download-and-restore
+          image: google/cloud-sdk:slim
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "Downloading dump from GCS..."
+              gsutil cp gs://{{ .Values.dumpBucket }}/{{ .Values.dumpFile }} /dump/dump.sql.gz
+              echo "Download complete: $(ls -lh /dump/dump.sql.gz)"
+
+              echo "Extracting dump..."
+              gunzip -c /dump/dump.sql.gz > /docker-entrypoint-initdb.d/01-restore.sql
+              echo "Extraction complete: $(ls -lh /docker-entrypoint-initdb.d/01-restore.sql)"
+          volumeMounts:
+            - name: dump-volume
+              mountPath: /dump
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: "{{ .Values.postgresUser }}"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgres-credentials
+                  key: password
+            - name: POSTGRES_DB
+              value: "{{ .Values.postgresDb }}"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          volumeMounts:
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu }}
+              memory: {{ .Values.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu }}
+              memory: {{ .Values.resources.limits.memory }}
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresUser }}
+                - -d
+                - {{ .Values.postgresDb }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresUser }}
+                - -d
+                - {{ .Values.postgresDb }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+      volumes:
+        - name: dump-volume
+          emptyDir: {}
+        - name: initdb
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.storage.storageClass }}
+        storageClassName: {{ .Values.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.storage.size }}

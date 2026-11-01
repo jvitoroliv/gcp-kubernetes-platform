@@ -1,0 +1,12 @@
+apiVersion: v2
+name: ais
+description: AI Image Service for GamePlatform Platform
+type: application
+version: 1.0.0
+appVersion: "3.11"
+keywords:
+  - microservice
+  - ais
+maintainers:
+  - name: GamePlatform DevOps Team
+    email: devops@gameplatform.example.com

@@ -1,0 +1,4 @@
+# Ignore everything by default; only include necessary files
+**
+!terraform
+!repos.yaml

@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: gameplatform-dev
+
+bases:
+  - ../../base
+
+resources:
+  - namespace-dev.yaml
+  - ingress-dev.yaml
+
+patchesStrategicMerge:
+  - configmap-dev.yaml
+
+commonLabels:
+  environment: dev
+  app.kubernetes.io/environment: dev
+
+images:
+  - name: nakama
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/nakama
+    newTag: latest
+  - name: lobby
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/lobby
+    newTag: latest
+  - name: lobby-backend
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/lobby-backend
+    newTag: latest
+  - name: afs
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/afs
+    newTag: latest
+  - name: ahsat
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/ahsat
+    newTag: latest
+  - name: aes
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/aes
+    newTag: latest
+  - name: ais
+    newName: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/ais
+    newTag: latest

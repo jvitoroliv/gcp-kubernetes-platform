@@ -1,0 +1,64 @@
+loki:
+  deploymentMode: SingleBinary
+
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    storage:
+      type: gcs
+      bucketNames:
+        # Overridden per environment
+        chunks: PLACEHOLDER
+        ruler: PLACEHOLDER
+        admin: PLACEHOLDER
+    schemaConfig:
+      configs:
+        - from: "2024-04-01"
+          store: tsdb
+          object_store: gcs
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+
+  # SingleBinary mode - simpler, fits our scale
+  singleBinary:
+    replicas: 1
+
+  # Disable scalable components (only used in SimpleScalable mode)
+  write:
+    replicas: 0
+  read:
+    replicas: 0
+  backend:
+    replicas: 0
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    persistence:
+      enabled: true
+      size: 5Gi
+
+  # Service account with Workload Identity annotation
+  # Name must match the Workload Identity binding created by Terraform: [monitoring/loki]
+  serviceAccount:
+    name: loki
+    annotations:
+      # Overridden per environment
+      iam.gke.io/gcp-service-account: PLACEHOLDER
+
+  # Promtail is deployed as a separate chart
+  test:
+    enabled: false
+  monitoring:
+    selfMonitoring:
+      enabled: false
+      grafanaAgent:
+        installOperator: false
+    lokiCanary:
+      enabled: false

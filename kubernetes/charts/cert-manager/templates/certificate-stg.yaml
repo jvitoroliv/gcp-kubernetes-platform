@@ -1,0 +1,31 @@
+{{- if .Values.certificates.stg.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: stg-gameplatform-tls
+  namespace: {{ .Values.certificates.stg.namespace }}
+spec:
+  secretName: stg-gameplatform-tls
+  duration: 2160h # 90 days (Let's Encrypt max)
+  renewBefore: 720h # 30 days
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    {{- range .Values.certificates.stg.dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+  issuerRef:
+    {{- if .Values.letsencrypt.enabled }}
+    name: letsencrypt-dns
+    {{- else }}
+    name: gameplatform-ca-issuer
+    {{- end }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+{{- end }}

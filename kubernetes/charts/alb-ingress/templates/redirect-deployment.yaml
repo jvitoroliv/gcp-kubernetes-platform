@@ -1,0 +1,79 @@
+{{- /*
+Nginx deployment for apex domain redirect to www
+Lightweight container that returns 301 redirect
+*/ -}}
+{{- if .Values.redirect }}
+{{- if .Values.redirect.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redirect-nginx-config
+  namespace: {{ .Values.namespace }}
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name {{ .Values.redirect.fromDomain }};
+
+        # Health check endpoint for GCP Load Balancer
+        location /healthz {
+            return 200 'OK';
+            add_header Content-Type text/plain;
+        }
+
+        # Redirect all other requests to www
+        location / {
+            return 301 {{ .Values.redirect.toUrl }}$request_uri;
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redirect-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: redirect-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redirect-service
+  template:
+    metadata:
+      labels:
+        app: redirect-service
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: redirect-nginx-config
+{{- end }}
+{{- end }}

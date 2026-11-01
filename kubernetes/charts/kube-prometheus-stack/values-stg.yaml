@@ -1,0 +1,114 @@
+grafanaAdminSecretManagerKey: stg-grafana-admin-password
+
+kube-prometheus-stack:
+  coreDns:
+    service:
+      port: 10054
+      targetPort: 10054
+
+  grafana:
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      hosts:
+        - grafana.stg.gameplatform
+    persistence:
+      enabled: true
+      accessModes: ["ReadWriteOnce"]
+      size: 5Gi
+    resources:
+      requests:
+        cpu: 150m
+        memory: 192Mi
+      limits:
+        cpu: 300m
+        memory: 384Mi
+    replicas: 1
+    additionalDataSources:
+      - name: Loki
+        type: loki
+        uid: loki
+        access: proxy
+        url: http://monitoring-loki-stg.monitoring.svc.cluster.local:3100
+        jsonData:
+          maxLines: 1000
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://monitoring-tempo-stg.monitoring.svc.cluster.local:3100
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-1h"
+            spanEndTimeShift: "1h"
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+
+  prometheus:
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      hosts:
+        - prometheus.stg.gameplatform
+      paths:
+        - /
+    prometheusSpec:
+      retention: 15d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 20Gi
+      resources:
+        requests:
+          cpu: 300m
+          memory: 768Mi
+        limits:
+          cpu: 600m
+          memory: 1.5Gi
+      replicas: 1
+
+  alertmanager:
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      hosts:
+        - alertmanager.stg.gameplatform
+      paths:
+        - /
+    alertmanagerSpec:
+      storage:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 3Gi
+      resources:
+        requests:
+          cpu: 75m
+          memory: 96Mi
+        limits:
+          cpu: 150m
+          memory: 192Mi
+      replicas: 1
+
+  prometheus-node-exporter:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 48Mi
+      limits:
+        cpu: 75m
+        memory: 96Mi

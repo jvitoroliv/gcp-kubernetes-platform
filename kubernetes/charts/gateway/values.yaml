@@ -1,0 +1,24 @@
+# Default values for gameplatform-gateway chart
+# This is a YAML-formatted file.
+# Use values-dev.yaml or values-stg.yaml for environment-specific configuration.
+
+# Namespace where resources will be created
+namespace: gameplatform-dev
+
+# GKE Gateway class
+gatewayClassName: gke-l7-global-external-managed
+
+# TLS secret name (created by cert-manager)
+tlsSecretName: dev-gameplatform-tls
+
+# Gateways configuration
+# One gateway per service/port (GKE limitation: one HTTPS listener per Gateway)
+gateways: {}
+
+# HTTPRoutes configuration
+# Maps gateways to backend services
+routes: {}
+
+# HealthCheckPolicy configuration
+# Custom health check paths for each service
+healthCheckPolicies: {}

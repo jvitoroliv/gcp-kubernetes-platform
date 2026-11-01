@@ -1,0 +1,22 @@
+GamePlatform Gateway has been installed!
+
+Namespace: {{ .Values.namespace }}
+GatewayClass: {{ .Values.gatewayClassName }}
+
+Gateways created:
+{{- range $name, $gw := .Values.gateways }}
+  - {{ $name }}: port {{ $gw.port }}
+{{- end }}
+
+To get Gateway IPs:
+  kubectl get gateways -n {{ .Values.namespace }}
+
+HTTPRoutes created:
+{{- range $name, $route := .Values.routes }}
+  - {{ $name }} -> {{ $route.backendService }}:{{ $route.backendPort }}
+{{- end }}
+
+HealthCheckPolicies created:
+{{- range $name, $policy := .Values.healthCheckPolicies }}
+  - {{ $name }}: {{ $policy.path }}
+{{- end }}

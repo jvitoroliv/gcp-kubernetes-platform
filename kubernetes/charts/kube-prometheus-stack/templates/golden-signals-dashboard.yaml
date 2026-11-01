@@ -1,0 +1,279 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gameplatform-golden-signals-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  gameplatform-golden-signals.json: |
+    {
+      "title": "GamePlatform Platform - Golden Signals",
+      "uid": "gameplatform-golden-signals",
+      "tags": ["gameplatform", "golden-signals"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "type": "custom",
+            "query": "gameplatform-dev,gameplatform-stg,gameplatform-prd",
+            "current": { "text": "All", "value": ["gameplatform-dev", "gameplatform-stg", "gameplatform-prd"] },
+            "multi": true,
+            "includeAll": true,
+            "hide": 0
+          },
+          {
+            "name": "service",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "query": "label_values(kube_pod_info{namespace=~\"gameplatform-.*\"}, pod)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "current": { "text": "All", "value": "$__all" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "row",
+          "title": "Traffic - Requests per second",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "collapsed": false,
+          "id": 1
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP Requests/sec by Service",
+          "id": 2,
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pod) (rate(http_requests_total{namespace=~\"gameplatform-.*\"}[5m]))",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "options": { "tooltip": { "mode": "multi" } }
+        },
+        {
+          "type": "row",
+          "title": "Errors - Error rate",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+          "collapsed": false,
+          "id": 3
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP Error Rate by Service (4xx + 5xx)",
+          "id": 4,
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "custom": { "lineWidth": 2 }, "color": { "fixedColor": "red", "mode": "fixed" } }
+          },
+          "targets": [
+            {
+              "expr": "(sum by (pod) (rate(http_requests_total{namespace=~\"gameplatform-.*\", status=~\"[45].*\"}[5m])) / sum by (pod) (rate(http_requests_total{namespace=~\"gameplatform-.*\"}[5m]))) or (0 * group by (pod) (rate(http_requests_total{namespace=~\"gameplatform-.*\"}[5m])))",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Latency - Response time",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+          "collapsed": false,
+          "id": 5
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P50 Latency",
+          "id": 6,
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (le, pod) (rate(http_request_duration_seconds_bucket{namespace=~\"gameplatform-.*\"}[5m])))",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P95 Latency",
+          "id": 15,
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, pod) (rate(http_request_duration_seconds_bucket{namespace=~\"gameplatform-.*\"}[5m])))",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P99 Latency",
+          "id": 16,
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum by (le, pod) (rate(http_request_duration_seconds_bucket{namespace=~\"gameplatform-.*\"}[5m])))",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Monthly Error Counters",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+          "collapsed": false,
+          "id": 12
+        },
+        {
+          "type": "stat",
+          "title": "Monthly 4xx Errors by Service",
+          "id": 13,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "palette-classic" },
+              "custom": { "displayMode": "gradient" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (http_errors_monthly_total{namespace=~\"gameplatform-.*\", error_type=\"4xx\"})",
+              "legendFormat": "{{ "{{" }}job{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "graphMode": "none"
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Monthly 5xx Errors by Service",
+          "id": 14,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "palette-classic" },
+              "custom": { "displayMode": "gradient" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (http_errors_monthly_total{namespace=~\"gameplatform-.*\", error_type=\"5xx\"})",
+              "legendFormat": "{{ "{{" }}job{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "graphMode": "none"
+          }
+        },
+        {
+          "type": "row",
+          "title": "Saturation - Resource usage",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+          "collapsed": false,
+          "id": 7
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU Usage by Pod (gameplatform-*)",
+          "id": 8,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 37 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "cores", "custom": { "lineWidth": 2 } }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"gameplatform-.*\", container=~\".+\"}[5m]))",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory Usage by Pod (gameplatform-*)",
+          "id": 9,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 37 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"gameplatform-.*\", container=~\".+\"})",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Logs",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+          "collapsed": false,
+          "id": 10
+        },
+        {
+          "type": "logs",
+          "title": "Application Logs (gameplatform-*)",
+          "id": 11,
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 46 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{namespace=~\"gameplatform-.*\"}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending"
+          }
+        }
+      ]
+    }

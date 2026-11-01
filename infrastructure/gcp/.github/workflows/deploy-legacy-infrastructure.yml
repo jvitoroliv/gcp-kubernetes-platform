@@ -1,0 +1,321 @@
+name: Deploy Legacy Infrastructure GCP
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: 'Infrastructure stack to deploy'
+        required: true
+        type: choice
+        options:
+          - 01-foundation
+          - 02-networking
+          - 03-storage
+          - 04-artifact-registry
+          - 05-compute
+          - 06-cloud-run
+          - 07-load-balancer
+          - 08-dns
+          - 09-vm-services-lb
+          - 10-middleware-vm
+          - 11-middleware-lb
+          - all
+        default: '01-foundation'
+      action:
+        description: 'Terraform action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+          - run-all
+        default: 'plan'
+      auto_approve:
+        description: 'Auto approve terraform apply/destroy (DANGEROUS)'
+        required: false
+        type: boolean
+        default: false
+      terraform_version:
+        description: 'Terraform version'
+        required: false
+        type: string
+        default: '1.13.1'
+
+jobs:
+  preflight-checks:
+    name: Pre-flight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      can_proceed: ${{ steps.validate.outputs.can_proceed }}
+    steps:
+      - name: Validate deployment requirements
+        id: validate
+        run: |
+          echo "Validating deployment requirements for LEGACY environment..."
+
+          DANGEROUS_OP=false
+
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            echo "DESTRUCTION requested for ${{ inputs.stack }} in legacy environment"
+            DANGEROUS_OP=true
+          fi
+
+          if [ "${{ inputs.stack }}" = "all" ] && [ "${{ inputs.action }}" != "plan" ]; then
+            echo "Deploying ALL stacks is a significant operation"
+            DANGEROUS_OP=true
+          fi
+
+          if [ "$DANGEROUS_OP" = "true" ]; then
+            echo "This is a potentially dangerous operation!"
+            echo "Please review carefully before proceeding."
+
+            if [ "${{ inputs.auto_approve }}" = "false" ]; then
+              echo "Auto-approve is disabled for safety. Enable it to proceed."
+              echo "can_proceed=false" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "Auto-approve is ENABLED. Proceeding with dangerous operation."
+            fi
+          fi
+
+          echo "Pre-flight checks passed"
+          echo "can_proceed=true" >> $GITHUB_OUTPUT
+
+      - name: Display deployment plan
+        run: |
+          echo "## Legacy Infrastructure Deployment Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Stack** | ${{ inputs.stack }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | legacy (project-legacy-env) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Region** | southamerica-east1 |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Action** | ${{ inputs.action }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Auto Approve** | ${{ inputs.auto_approve }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Terraform Version** | ${{ inputs.terraform_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            echo "**WARNING: DESTRUCTION OPERATION**" >> $GITHUB_STEP_SUMMARY
+            echo "This will destroy all resources in the ${{ inputs.stack }} stack!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### Legacy Stacks (Rogues Migration)" >> $GITHUB_STEP_SUMMARY
+          echo "- 01-foundation: APIs, Service Accounts" >> $GITHUB_STEP_SUMMARY
+          echo "- 02-networking: VPC, Subnet, NAT, Firewall" >> $GITHUB_STEP_SUMMARY
+          echo "- 03-storage: GCS Bucket (from S3)" >> $GITHUB_STEP_SUMMARY
+          echo "- 04-artifact-registry: Docker Registry (from ECR)" >> $GITHUB_STEP_SUMMARY
+          echo "- 05-compute: GCE Instance (from EC2)" >> $GITHUB_STEP_SUMMARY
+          echo "- 06-cloud-run: Cloud Run (from ECS Fargate)" >> $GITHUB_STEP_SUMMARY
+          echo "- 07-load-balancer: HTTPS LB for Cloud Run middleware" >> $GITHUB_STEP_SUMMARY
+          echo "- 08-dns: Cloud DNS (from Route 53)" >> $GITHUB_STEP_SUMMARY
+          echo "- 09-vm-services-lb: HTTPS LB for VM services (afs, nakama, ahsat, acrypt)" >> $GITHUB_STEP_SUMMARY
+          echo "- 10-middleware-vm: Dedicated VM for middleware (replaces Cloud Run)" >> $GITHUB_STEP_SUMMARY
+          echo "- 11-middleware-lb: HTTPS LB for middleware VM (example-game.wtf)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  deploy-legacy-infrastructure:
+    name: Deploy Legacy Infrastructure
+    needs: preflight-checks
+    if: needs.preflight-checks.outputs.can_proceed == 'true'
+    uses: example-gamedev-org/gameplatform-shared-actions/.github/workflows/deploy-legacy-infrastructure-gcp.yml@main
+    with:
+      stack: ${{ inputs.stack }}
+      action: ${{ inputs.action }}
+      terraform_version: ${{ inputs.terraform_version }}
+      auto_approve: ${{ inputs.auto_approve }}
+      shared_infrastructure_ref: ${{ github.ref_name }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER_LEGACY }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_LEGACY }}
+
+  post-deployment:
+    name: Post-Deployment
+    needs: [preflight-checks, deploy-legacy-infrastructure]
+    if: always() && needs.preflight-checks.outputs.can_proceed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment Results
+        run: |
+          echo "## Deployment Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          STATUS="${{ needs.deploy-legacy-infrastructure.outputs.deployment_status }}"
+          SERVICE_URL="${{ needs.deploy-legacy-infrastructure.outputs.stack_url }}"
+
+          case "$STATUS" in
+            success)
+              echo "**Deployment Status**: SUCCESS" >> $GITHUB_STEP_SUMMARY
+              if [ -n "$SERVICE_URL" ]; then
+                echo "**Service URL/Info**: $SERVICE_URL" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            failure|failed)
+              echo "**Deployment Status**: FAILED" >> $GITHUB_STEP_SUMMARY
+              echo "Check the deployment logs for error details." >> $GITHUB_STEP_SUMMARY
+              ;;
+            *)
+              echo "**Deployment Status**: UNKNOWN ($STATUS)" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Compute-specific Post-deployment
+        if: inputs.stack == '05-compute' && inputs.action == 'apply' && needs.deploy-legacy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "## Rogues Server Instance Setup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### SSH Access (via IAP)" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud compute ssh rogues-server \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --zone=southamerica-east1-a \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --tunnel-through-iap \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project=project-legacy-env" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Copy application code to the instance" >> $GITHUB_STEP_SUMMARY
+          echo "2. Pull Docker images from Artifact Registry" >> $GITHUB_STEP_SUMMARY
+          echo "3. Configure and start the Rogues server" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cloud-Run-specific Post-deployment
+        if: inputs.stack == '06-cloud-run' && inputs.action == 'apply' && needs.deploy-legacy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "## Rogues Middleware Cloud Run Setup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Service URL" >> $GITHUB_STEP_SUMMARY
+          echo "Check the Terraform output for the Cloud Run service URL." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deploy New Version" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud run deploy rogues-middleware \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --image southamerica-east1-docker.pkg.dev/project-legacy-env/rogues-images/middleware-app:TAG \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --region southamerica-east1 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project project-legacy-env" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Load-Balancer-specific Post-deployment
+        if: inputs.stack == '07-load-balancer' && inputs.action == 'apply' && needs.deploy-legacy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "## Load Balancer Setup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### SSL Certificate Provisioning" >> $GITHUB_STEP_SUMMARY
+          echo "The managed SSL certificate will be provisioned once DNS records point to the LB IP." >> $GITHUB_STEP_SUMMARY
+          echo "This may take up to 24 hours after DNS propagation." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Check Certificate Status" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud compute ssl-certificates describe rogues-middleware-lb-cert \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project=project-legacy-env" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: DNS-specific Post-deployment
+        if: inputs.stack == '08-dns' && inputs.action == 'apply' && needs.deploy-legacy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "## DNS Setup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Name Servers" >> $GITHUB_STEP_SUMMARY
+          echo "Update your domain registrar with the Cloud DNS name servers." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Get Name Servers" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud dns managed-zones describe rogues-wtf \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project=project-legacy-env \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --format='value(nameServers)'" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Important" >> $GITHUB_STEP_SUMMARY
+          echo "DNS changes may take up to 48 hours to propagate globally." >> $GITHUB_STEP_SUMMARY
+
+      - name: VM-Services-LB-specific Post-deployment
+        if: inputs.stack == '09-vm-services-lb' && inputs.action == 'apply' && needs.deploy-legacy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "## VM Services Load Balancer Setup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### SSL Certificate Provisioning" >> $GITHUB_STEP_SUMMARY
+          echo "The managed SSL certificate will be provisioned once DNS records point to the LB IP." >> $GITHUB_STEP_SUMMARY
+          echo "This may take up to 24 hours after DNS propagation." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Services Routed" >> $GITHUB_STEP_SUMMARY
+          echo "- afs.example-game.wtf -> VM:9933" >> $GITHUB_STEP_SUMMARY
+          echo "- nakama.example-game.wtf -> VM:7350" >> $GITHUB_STEP_SUMMARY
+          echo "- ahsat.example-game.wtf -> VM:6969" >> $GITHUB_STEP_SUMMARY
+          echo "- acrypt.example-game.wtf -> VM:14333" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Check Certificate Status" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud compute ssl-certificates describe rogues-vm-services-lb-cert \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project=project-legacy-env" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment Order" >> $GITHUB_STEP_SUMMARY
+          echo "After applying this stack, run 08-dns to update DNS records." >> $GITHUB_STEP_SUMMARY
+
+      - name: Middleware-VM-specific Post-deployment
+        if: inputs.stack == '10-middleware-vm' && inputs.action == 'apply' && needs.deploy-legacy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "## Middleware VM Setup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### SSH Access (via IAP)" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud compute ssh rogues-middleware \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --zone=southamerica-east1-a \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --tunnel-through-iap \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project=project-legacy-env" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Check Container Status" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker ps" >> $GITHUB_STEP_SUMMARY
+          echo "docker logs rogues-middleware" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Apply 11-middleware-lb to create the Load Balancer" >> $GITHUB_STEP_SUMMARY
+          echo "2. Apply 08-dns to update DNS records" >> $GITHUB_STEP_SUMMARY
+
+      - name: Middleware-LB-specific Post-deployment
+        if: inputs.stack == '11-middleware-lb' && inputs.action == 'apply' && needs.deploy-legacy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "## Middleware Load Balancer Setup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### SSL Certificate Provisioning" >> $GITHUB_STEP_SUMMARY
+          echo "The managed SSL certificate will be provisioned once DNS records point to the LB IP." >> $GITHUB_STEP_SUMMARY
+          echo "This may take up to 24 hours after DNS propagation." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Check Certificate Status" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud compute ssl-certificates describe rogues-middleware-lb-cert \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project=project-legacy-env" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Apply 08-dns to update DNS records (example-game.wtf -> new LB IP)" >> $GITHUB_STEP_SUMMARY
+          echo "2. Wait for SSL certificate to provision" >> $GITHUB_STEP_SUMMARY
+          echo "3. Test https://example-game.wtf" >> $GITHUB_STEP_SUMMARY
+
+      - name: Success Metrics
+        if: needs.deploy-legacy-infrastructure.outputs.deployment_status == 'success'
+        run: |
+          echo "Deployment completed successfully!"
+          echo "Stack: ${{ inputs.stack }}"
+          echo "Environment: legacy"
+          echo "Action: ${{ inputs.action }}"
+
+      - name: Failure Handling
+        if: needs.deploy-legacy-infrastructure.outputs.deployment_status == 'failed'
+        run: |
+          echo "Deployment failed!"
+          echo "Check the terraform-deploy job logs for detailed error information."
+          echo ""
+          echo "Common troubleshooting steps:"
+          echo "1. Verify GCP Workload Identity Federation is configured for legacy project"
+          echo "2. Check if required APIs are enabled in project-legacy-env"
+          echo "3. Verify Terraform state bucket (gameplatform-terraform-state-legacy) exists"
+          echo "4. Ensure the Terraform modules are accessible via GH_PAT"
+
+          exit 1

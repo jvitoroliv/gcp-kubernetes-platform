@@ -1,0 +1,378 @@
+name: "Build and Push Container Images"
+
+on:
+  workflow_call:
+    inputs:
+      applications:
+        description: "Applications to build (comma-separated: server,lobby,lobby-backend,nakama,afs,ahsat,aes,ais,all)"
+        required: false
+        type: string
+        default: "all"
+      environment:
+        description: "Environment for the build (dev, stg, prd)"
+        required: false
+        type: string
+        default: "dev"
+      ecr_push:
+        description: "Push images to ECR"
+        required: false
+        type: boolean
+        default: true
+      image_tag:
+        description: "Image tag (defaults to commit SHA)"
+        required: false
+        type: string
+        default: ""
+
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      LIVE_AWS_ACCESS_KEY_ID:
+        required: false
+      LIVE_AWS_SECRET_ACCESS_KEY:
+        required: false
+
+    outputs:
+      server_image:
+        description: "Server images pushed to ECR"
+        value: ${{ jobs.summary.outputs.server_image }}
+      lobby_image:
+        description: "Lobby image pushed to ECR"
+        value: ${{ jobs.summary.outputs.lobby_image }}
+      lobby_backend_image:
+        description: "Lobby Backend image pushed to ECR"
+        value: ${{ jobs.summary.outputs.lobby_backend_image }}
+      nakama_image:
+        description: "Nakama image pushed to ECR"
+        value: ${{ jobs.summary.outputs.nakama_image }}
+      afs_image:
+        description: "AFS image pushed to ECR"
+        value: ${{ jobs.summary.outputs.afs_image }}
+      ahsat_image:
+        description: "AHSAT image pushed to ECR"
+        value: ${{ jobs.summary.outputs.ahsat_image }}
+      aes_image:
+        description: "AES image pushed to ECR"
+        value: ${{ jobs.summary.outputs.aes_image }}
+      ais_image:
+        description: "AIS image pushed to ECR"
+        value: ${{ jobs.summary.outputs.ais_image }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    name: "Build and Push Images"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    outputs:
+      lobby_image: ${{ steps.outputs.outputs.lobby_image }}
+      lobby_backend_image: ${{ steps.outputs.outputs.lobby_backend_image }}
+      nakama_image: ${{ steps.outputs.outputs.nakama_image }}
+      afs_image: ${{ steps.outputs.outputs.afs_image }}
+      ahsat_image: ${{ steps.outputs.outputs.ahsat_image }}
+      aes_image: ${{ steps.outputs.outputs.aes_image }}
+      ais_image: ${{ steps.outputs.outputs.ais_image }}
+      lobby_status: ${{ steps.outputs.outputs.lobby_status }}
+      lobby_backend_status: ${{ steps.outputs.outputs.lobby_backend_status }}
+      nakama_status: ${{ steps.outputs.outputs.nakama_status }}
+      afs_status: ${{ steps.outputs.outputs.afs_status }}
+      ahsat_status: ${{ steps.outputs.outputs.ahsat_status }}
+      aes_status: ${{ steps.outputs.outputs.aes_status }}
+      ais_status: ${{ steps.outputs.outputs.ais_status }}
+      push_status: ${{ steps.outputs.outputs.push_status }}
+
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            applications/server
+            applications/lobby
+            applications/lobby-backend
+
+      - name: "Generate Image Tag"
+        id: tag
+        run: |
+          if [[ -n "${{ inputs.image_tag }}" ]]; then
+            echo "image_tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            TAG="${{ inputs.environment }}-${{ github.sha }}"
+            echo "image_tag=${TAG:0:50}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "Configure AWS Credentials"
+        if: inputs.ecr_push
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.environment == 'live' && 'sa-east-1' || 'us-east-1' }}
+
+      - name: "Login to Amazon ECR"
+        if: inputs.ecr_push
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: "Determine Applications"
+        id: determine
+        run: |
+          APPS="${{ inputs.applications }}"
+          if [[ "$APPS" == "all" ]]; then
+            APPS="nakama,afs,ahsat,aes,ais,lobby,lobby-backend"
+          elif [[ "$APPS" == "server" ]]; then
+            APPS="nakama,afs,ahsat,aes,ais"
+          fi
+          echo "applications=$APPS" >> $GITHUB_OUTPUT
+
+      - name: "Setup Node.js"
+        if: contains(steps.determine.outputs.applications, 'lobby')
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'applications/lobby/package.json'
+
+      - name: "Setup Docker Buildx"
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          install: true
+          driver-opts: network=host
+
+      - name: "Build Images"
+        id: build
+        run: |
+          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+          IMAGE_TAG="${{ steps.tag.outputs.image_tag }}"
+          APPS="${{ steps.determine.outputs.applications }}"
+
+          build_service() {
+            local service=$1
+            local context=$2
+            local img="$ECR_REGISTRY/gameplatform-$service:$IMAGE_TAG"
+
+            if [[ "$service" == "lobby" ]]; then
+              cd applications/lobby
+              npm ci --prefer-offline --no-audit --no-fund
+              npm run build
+              cd ../..
+            fi
+
+            if docker buildx build --cache-from type=local,src=/tmp/.buildx-cache-$service --cache-to type=local,dest=/tmp/.buildx-cache-$service,mode=max --load -t $img $context 2>&1 | tee "$GITHUB_WORKSPACE/${service}_build.log"; then
+              echo "$img" > "$GITHUB_WORKSPACE/${service}_image.txt"
+              echo "success" > "$GITHUB_WORKSPACE/${service}_status.txt"
+              echo "✅ $service built successfully"
+            else
+              echo "" > "$GITHUB_WORKSPACE/${service}_image.txt"
+              echo "failed" > "$GITHUB_WORKSPACE/${service}_status.txt"
+              echo "❌ $service build failed"
+            fi
+          }
+
+          # Build in parallel
+          if [[ ",$APPS," =~ ,lobby, ]]; then
+            build_service lobby "applications/lobby" &
+            LOBBY_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,lobby-backend, ]]; then
+            build_service lobby-backend "applications/lobby-backend" &
+            LB_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,nakama, ]]; then
+            build_service nakama "applications/server/nakama" &
+            NAK_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,afs, ]]; then
+            build_service afs "applications/server/afs" &
+            AFS_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,ahsat, ]]; then
+            build_service ahsat "applications/server/AHSAT" &
+            AHS_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,aes, ]]; then
+            build_service aes "applications/server/aes" &
+            AES_PID=$!
+          fi
+
+          if [[ ",$APPS," =~ ,ais, ]]; then
+            build_service ais "applications/server/ais" &
+            AIS_PID=$!
+          fi
+
+          # Wait for all builds
+          if [[ -n "${LOBBY_PID:-}" ]]; then
+            wait $LOBBY_PID
+          fi
+
+          if [[ -n "${LB_PID:-}" ]]; then
+            wait $LB_PID
+          fi
+
+          if [[ -n "${NAK_PID:-}" ]]; then
+            wait $NAK_PID
+          fi
+
+          if [[ -n "${AFS_PID:-}" ]]; then
+            wait $AFS_PID
+          fi
+
+          if [[ -n "${AHS_PID:-}" ]]; then
+            wait $AHS_PID
+          fi
+
+          if [[ -n "${AES_PID:-}" ]]; then
+            wait $AES_PID
+          fi
+
+          if [[ -n "${AIS_PID:-}" ]]; then
+            wait $AIS_PID
+          fi
+
+          # Check build failures
+          if grep -q "failed" *_status.txt 2>/dev/null; then
+            echo "❌ Build failures detected"
+            exit 1
+          fi
+
+      - name: "Push Images to ECR"
+        if: inputs.ecr_push
+        id: push
+        run: |
+          push_image() {
+            local img=$1
+            local name=$2
+            if [[ -n "$img" && "$img" != "none" ]]; then
+              echo "📦 Pushing $name: $img"
+              if docker push "$img"; then
+                echo "✅ $name pushed"
+                echo "success" > "${name}_push.txt"
+              else
+                echo "❌ $name push failed"
+                echo "failed" > "${name}_push.txt"
+              fi
+            else
+              echo "⏭️  Skipping $name (no image)"
+              echo "skipped" > "${name}_push.txt"
+            fi
+          }
+
+          # Read built images from files
+          LOBBY_IMG=$(cat "$GITHUB_WORKSPACE/lobby_image.txt" 2>/dev/null || echo "")
+          LB_IMG=$(cat "$GITHUB_WORKSPACE/lobby-backend_image.txt" 2>/dev/null || echo "")
+          NAK_IMG=$(cat "$GITHUB_WORKSPACE/nakama_image.txt" 2>/dev/null || echo "")
+          AFS_IMG=$(cat "$GITHUB_WORKSPACE/afs_image.txt" 2>/dev/null || echo "")
+          AHS_IMG=$(cat "$GITHUB_WORKSPACE/ahsat_image.txt" 2>/dev/null || echo "")
+          AES_IMG=$(cat "$GITHUB_WORKSPACE/aes_image.txt" 2>/dev/null || echo "")
+          AIS_IMG=$(cat "$GITHUB_WORKSPACE/ais_image.txt" 2>/dev/null || echo "")
+
+          # Push in batches (3 concurrent)
+          push_image "$LOBBY_IMG" "lobby" & P1=$!
+          push_image "$LB_IMG" "lobby_backend" & P2=$!
+          push_image "$NAK_IMG" "nakama" & P3=$!
+          wait $P1 $P2 $P3
+
+          push_image "$AFS_IMG" "afs" & P4=$!
+          push_image "$AHS_IMG" "ahsat" & P5=$!
+          push_image "$AES_IMG" "aes" & P6=$!
+          wait $P4 $P5 $P6
+
+          push_image "$AIS_IMG" "ais" & P7=$!
+          wait $P7
+
+          # Check push failures
+          if grep -q "failed" *_push.txt 2>/dev/null; then
+            echo "❌ Some pushes failed"
+            exit 1
+          else
+            echo "✅ All pushes successful"
+          fi
+
+      - name: "Set Outputs"
+        id: outputs
+        if: always()
+        run: |
+          # Collect image outputs
+          for svc in lobby lobby-backend nakama afs ahsat aes ais; do
+            img=$(cat "$GITHUB_WORKSPACE/${svc}_image.txt" 2>/dev/null || echo "")
+            status=$(cat "$GITHUB_WORKSPACE/${svc}_status.txt" 2>/dev/null || echo "skipped")
+            svc_upper=$(echo $svc | tr '-' '_')
+            echo "${svc_upper}_image=$img" >> $GITHUB_OUTPUT
+            echo "${svc_upper}_status=$status" >> $GITHUB_OUTPUT
+          done
+
+          # Push status
+          if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+            if grep -q "failed" *_push.txt 2>/dev/null; then
+              echo "push_status=failed" >> $GITHUB_OUTPUT
+            else
+              echo "push_status=success" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "push_status=skipped" >> $GITHUB_OUTPUT
+          fi
+
+  summary:
+    name: "Build Summary"
+    needs: build-and-push
+    if: always()
+    runs-on: ubuntu-latest
+
+    outputs:
+      server_image: ${{ steps.output.outputs.server_image }}
+      lobby_image: ${{ steps.output.outputs.lobby_image }}
+      lobby_backend_image: ${{ steps.output.outputs.lobby_backend_image }}
+      nakama_image: ${{ steps.output.outputs.nakama_image }}
+      afs_image: ${{ steps.output.outputs.afs_image }}
+      ahsat_image: ${{ steps.output.outputs.ahsat_image }}
+      aes_image: ${{ steps.output.outputs.aes_image }}
+      ais_image: ${{ steps.output.outputs.ais_image }}
+
+    steps:
+      - name: "Set Outputs"
+        id: output
+        run: |
+          echo "lobby_image=${{ needs.build-and-push.outputs.lobby_image }}" >> $GITHUB_OUTPUT
+          echo "lobby_backend_image=${{ needs.build-and-push.outputs.lobby_backend_image }}" >> $GITHUB_OUTPUT
+          echo "nakama_image=${{ needs.build-and-push.outputs.nakama_image }}" >> $GITHUB_OUTPUT
+          echo "afs_image=${{ needs.build-and-push.outputs.afs_image }}" >> $GITHUB_OUTPUT
+          echo "ahsat_image=${{ needs.build-and-push.outputs.ahsat_image }}" >> $GITHUB_OUTPUT
+          echo "aes_image=${{ needs.build-and-push.outputs.aes_image }}" >> $GITHUB_OUTPUT
+          echo "ais_image=${{ needs.build-and-push.outputs.ais_image }}" >> $GITHUB_OUTPUT
+
+          # Combine server images
+          SERVER_IMGS=""
+          [[ -n "${{ needs.build-and-push.outputs.nakama_image }}" ]] && SERVER_IMGS="${SERVER_IMGS}${{ needs.build-and-push.outputs.nakama_image }},"
+          [[ -n "${{ needs.build-and-push.outputs.afs_image }}" ]] && SERVER_IMGS="${SERVER_IMGS}${{ needs.build-and-push.outputs.afs_image }},"
+          [[ -n "${{ needs.build-and-push.outputs.ahsat_image }}" ]] && SERVER_IMGS="${SERVER_IMGS}${{ needs.build-and-push.outputs.ahsat_image }},"
+          [[ -n "${{ needs.build-and-push.outputs.aes_image }}" ]] && SERVER_IMGS="${SERVER_IMGS}${{ needs.build-and-push.outputs.aes_image }},"
+          [[ -n "${{ needs.build-and-push.outputs.ais_image }}" ]] && SERVER_IMGS="${SERVER_IMGS}${{ needs.build-and-push.outputs.ais_image }},"
+          SERVER_IMGS="${SERVER_IMGS%,}"
+          echo "server_image=$SERVER_IMGS" >> $GITHUB_OUTPUT
+
+      - name: "Summary"
+        run: |
+          echo "## 🚀 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lobby**: ${{ needs.build-and-push.outputs.lobby_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lobby Backend**: ${{ needs.build-and-push.outputs.lobby_backend_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Nakama**: ${{ needs.build-and-push.outputs.nakama_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AFS**: ${{ needs.build-and-push.outputs.afs_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AHSAT**: ${{ needs.build-and-push.outputs.ahsat_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AES**: ${{ needs.build-and-push.outputs.aes_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AIS**: ${{ needs.build-and-push.outputs.ais_status }}" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ inputs.ecr_push }}" == "true" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Push Status**: ${{ needs.build-and-push.outputs.push_status }}" >> $GITHUB_STEP_SUMMARY
+          fi

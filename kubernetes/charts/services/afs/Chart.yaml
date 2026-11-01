@@ -1,0 +1,12 @@
+apiVersion: v2
+name: afs
+description: Asset File Service for GamePlatform Platform
+type: application
+version: 1.0.0
+appVersion: "1.22.5"
+keywords:
+  - microservice
+  - afs
+maintainers:
+  - name: GamePlatform DevOps Team
+    email: devops@gameplatform.example.com

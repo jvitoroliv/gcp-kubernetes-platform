@@ -1,0 +1,131 @@
+replicaCount: 1
+
+image:
+  repository: metabase/metabase
+  tag: "v0.56.3"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "metabase"
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: false
+
+securityContext:
+  runAsUser: 0
+  allowPrivilegeEscalation: false
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: ani-metrics.gameplatform.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          port: 3000
+  tls:
+    - secretName: prd-gameplatform-tls
+      hosts:
+        - ani-metrics.gameplatform.example.com
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  timeoutSeconds: 10
+  successThreshold: 1
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+# Environment variables
+env:
+  - name: MB_JETTY_HOST
+    value: "0.0.0.0"
+  - name: MB_JETTY_PORT
+    value: "3000"
+  - name: MB_DB_TYPE
+    value: "postgres"
+  - name: JAVA_OPTS
+    value: "-Xms512m -Xmx2g"
+  - name: JAVA_TIMEZONE
+    value: "America/Sao_Paulo"
+  - name: MB_SITE_NAME
+    value: "GamePlatform Analytics"
+  - name: MB_ANON_TRACKING_ENABLED
+    value: "false"
+  - name: MB_CHECK_FOR_UPDATES
+    value: "false"
+
+# Environment variables from ConfigMap and Secrets
+envFrom:
+  - configMapRef:
+      name: metabase-config
+  - secretRef:
+      name: metabase-secrets
+
+# External Secrets configuration (GCP Secret Manager)
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: gcp-secret-manager
+    kind: ClusterSecretStore
+  secrets:
+    - secretKey: MB_DB_CONNECTION_URI
+      remoteKey: project-prd-metabase-db-connection
+
+# Service monitor for Prometheus
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  path: /api/health
+  labels: {}

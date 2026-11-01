@@ -1,0 +1,519 @@
+# Production environment values for game-platform
+# Deployed to namespace: gameplatform-prd
+# CI/CD automatically updates image tags in this file.
+#
+# Usage:
+#   helm install game-platform . -n gameplatform-prd -f values.yaml -f values-prd.yaml
+
+global:
+  imageRegistry: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images
+  imagePullPolicy: IfNotPresent
+  domain: gameplatform.example.com
+  # GitHub Environment — enables deployment protection rules and secrets scoping
+  environment: prd
+
+  # Database configuration
+  database:
+    secretName: postgres-credentials
+    host: "" # Will be set from Cloud SQL private IP
+    connectionName: "project-prd-env:southamerica-east1:project-prd-postgres"
+
+  # External Secrets Operator
+  externalSecrets:
+    enabled: true
+    clusterSecretStore: gcp-secret-manager
+
+  # Monitoring (enabled in prd)
+  monitoring:
+    enabled: true
+    prometheus:
+      enabled: true
+    grafana:
+      enabled: true
+
+  # Ingress (nginx with External Load Balancer + TLS)
+  ingress:
+    className: nginx
+    annotations: {}
+    tls:
+      enabled: true
+      secretName: prd-gameplatform-tls
+
+# Service-specific configurations
+nakama:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "prd-a1408fa"
+  serviceMonitor:
+    enabled: true
+  podSecurityContext:
+    runAsNonRoot: false
+  securityContext:
+    runAsUser: 0
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: 2048m
+      memory: 4096Mi
+    limits:
+      cpu: 2048m
+      memory: 4096Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 7350
+    initialDelaySeconds: 300
+    periodSeconds: 60
+    timeoutSeconds: 30
+    successThreshold: 1
+    failureThreshold: 15
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 7350
+    initialDelaySeconds: 300
+    periodSeconds: 60
+    timeoutSeconds: 30
+    successThreshold: 1
+    failureThreshold: 15
+  database:
+    cloudSqlProxy:
+      enabled: false
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "nakama-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/enable-cors: "true"
+      nginx.ingress.kubernetes.io/cors-allow-origin: "https://app.gameplatform.example.com"
+      nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PUT, POST, DELETE, PATCH, OPTIONS"
+      nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization,Accept"
+      nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    hosts:
+      - host: nakama.gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 7350
+    tls:
+      - secretName: prd-gameplatform-tls
+        hosts:
+          - nakama.gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: NAKAMA_DATABASE_ADDRESS
+        remoteKey: project-prd-db-nakama-connection
+      - secretKey: DB_HOST
+        remoteKey: project-prd-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-prd-db-nakama-password
+      - secretKey: NAKAMA_HTTP_KEY
+        remoteKey: project-prd-nakama-http-key
+      - secretKey: NAKAMA_SERVER_KEY
+        remoteKey: project-prd-nakama-server-key
+      - secretKey: AES_KEY
+        remoteKey: project-prd-aes-encryption-key
+
+lobby:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "prd-e55b6eb"
+  serviceMonitor:
+    enabled: true
+    path: /metrics
+  podSecurityContext:
+    runAsNonRoot: false
+  securityContext:
+    runAsUser: 0
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - DAC_OVERRIDE
+        - CHOWN
+        - FOWNER
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "lobby-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: app.gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 3000
+    tls:
+      - secretName: prd-gameplatform-tls
+        hosts:
+          - app.gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: NEXTAUTH_SECRET
+        remoteKey: project-prd-nextauth-secret
+      - secretKey: GOOGLE_CLIENT_ID
+        remoteKey: project-prd-google-client-id
+      - secretKey: GOOGLE_CLIENT_SECRET
+        remoteKey: project-prd-google-client-secret
+
+lobby-backend:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "prd-22ebbfb"
+  serviceMonitor:
+    enabled: true
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "lobby-backend-backend-config"}'
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: lobby-backend.gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 3001
+    tls:
+      - secretName: prd-gameplatform-tls
+        hosts:
+          - lobby-backend.gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-prd-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-prd-db-nakama-password
+      - secretKey: NAKAMA_SERVER_KEY
+        remoteKey: project-prd-nakama-server-key
+      - secretKey: NAKAMA_HTTP_KEY
+        remoteKey: project-prd-nakama-http-key
+      - secretKey: AES_API_KEY
+        remoteKey: project-prd-aes-api-key
+      - secretKey: SMTP_USER
+        remoteKey: project-prd-smtp-user
+      - secretKey: SMTP_PASSWORD
+        remoteKey: project-prd-smtp-password
+      - secretKey: OAUTH_CLIENT_ID
+        remoteKey: project-prd-google-client-id
+      - secretKey: REDIS_HOST
+        remoteKey: project-prd-redis-host
+      - secretKey: REDIS_PORT
+        remoteKey: project-prd-redis-port
+
+afs:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "prd-22ebbfb"
+  serviceMonitor:
+    enabled: true
+  # Workload Identity for native GCS access
+  serviceAccount:
+    create: true
+    annotations:
+      iam.gke.io/gcp-service-account: project-prd-afs@project-prd-env.iam.gserviceaccount.com
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "afs-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: afs.gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 9933
+    tls:
+      - secretName: prd-gameplatform-tls
+        hosts:
+          - afs.gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-prd-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-prd-db-nakama-password
+
+ahsat:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "prd-a1408fa"
+  serviceMonitor:
+    enabled: true
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "ahsat-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: ahsat.gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 6969
+    tls:
+      - secretName: prd-gameplatform-tls
+        hosts:
+          - ahsat.gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-prd-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-prd-db-nakama-password
+      - secretKey: NK_HTTP_KEY
+        remoteKey: project-prd-nakama-http-key
+      - secretKey: AI_API_KEY
+        remoteKey: project-prd-ai-api-key
+      - secretKey: AIS_APP_SECRET
+        remoteKey: project-prd-ais-app-secret
+      - secretKey: AES_API_KEY
+        remoteKey: project-prd-aes-api-key
+
+aes:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "prd-22ebbfb"
+  serviceMonitor:
+    enabled: true
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "aes-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: aes.gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 1988
+    tls:
+      - secretName: prd-gameplatform-tls
+        hosts:
+          - aes.gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: AES_API_KEY
+        remoteKey: project-prd-aes-api-key
+      - secretKey: SMTP_USER
+        remoteKey: project-prd-smtp-user
+      - secretKey: SMTP_PASSWORD
+        remoteKey: project-prd-smtp-password
+
+ais:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "prd-b25554c"
+  serviceMonitor:
+    enabled: true
+  # Workload Identity for native GCS access
+  serviceAccount:
+    create: true
+    annotations:
+      iam.gke.io/gcp-service-account: project-prd-ais@project-prd-env.iam.gserviceaccount.com
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "ais-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: ais.gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 5050
+    tls:
+      - secretName: prd-gameplatform-tls
+        hosts:
+          - ais.gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: DB_HOST
+        remoteKey: project-prd-db-host
+      - secretKey: DB_PASSWORD
+        remoteKey: project-prd-db-nakama-password
+      - secretKey: AIS_APP_SECRET
+        remoteKey: project-prd-ais-app-secret
+      - secretKey: PIAPI_KEY
+        remoteKey: project-prd-piapi-key
+      - secretKey: GEMINI_API_KEY
+        remoteKey: project-prd-gemini-api-key
+
+aps:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "prd-22ebbfb"
+  serviceMonitor:
+    enabled: true
+  service:
+    annotations:
+      cloud.google.com/neg: '{"ingress": true}'
+      cloud.google.com/backend-config: '{"default": "aps-backend-config"}'
+  resources:
+    requests:
+      cpu: 1024m
+      memory: 2048Mi
+    limits:
+      cpu: 1024m
+      memory: 2048Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: aps.gameplatform.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 4444
+    tls:
+      - secretName: prd-gameplatform-tls
+        hosts:
+          - aps.gameplatform.example.com
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager
+      kind: ClusterSecretStore
+    secrets:
+      - secretKey: YUNO_PUBLIC_KEY
+        remoteKey: project-prd-yuno-public-key
+      - secretKey: YUNO_PRIVATE_KEY
+        remoteKey: project-prd-yuno-private-key
+      - secretKey: YUNO_ACCOUNT_ID
+        remoteKey: project-prd-yuno-account-id
+

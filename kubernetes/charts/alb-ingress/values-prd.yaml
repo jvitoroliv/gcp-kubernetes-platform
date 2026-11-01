@@ -1,0 +1,76 @@
+# ALB Ingress - PRD environment values
+
+namespace: gameplatform-prd
+
+# Static IP name created by Terraform (project-prd-alb-ip)
+staticIpName: project-prd-alb-ip
+
+# SSL Certificate name (managed by this chart via ManagedCertificate)
+sslCertificateName: project-prd-alb-cert-v2
+
+# Domain suffix
+domain: gameplatform.example.com
+
+# Service name prefix
+servicePrefix: game-platform-prd
+
+# Services configuration for hostname-based routing
+services:
+  nakama:
+    hostname: nakama
+    port: 7350
+    healthCheckPath: /healthcheck
+    timeoutSec: 3600
+
+  app:
+    hostname: app
+    port: 3000
+    healthCheckPath: /
+    timeoutSec: 30
+    serviceName: game-platform-prd-lobby
+
+  lobby-backend:
+    hostname: lobby-backend
+    port: 3001
+    healthCheckPath: /health
+    timeoutSec: 30
+
+  afs:
+    hostname: afs
+    port: 9933
+    healthCheckPath: /ping
+    timeoutSec: 60
+
+  ahsat:
+    hostname: ahsat
+    port: 6969
+    healthCheckPath: /ping
+    timeoutSec: 60
+
+  ais:
+    hostname: ais
+    port: 5050
+    healthCheckPath: /health
+    timeoutSec: 300
+
+  aes:
+    hostname: aes
+    port: 1988
+    healthCheckPath: /health
+    timeoutSec: 30
+
+  aps:
+    hostname: aps
+    port: 4444
+    healthCheckPath: /v0/aps/ping
+    timeoutSec: 60
+
+# Default backend (for unmatched requests)
+defaultBackend: app
+
+# Apex domain redirect to www (institutional site on Webflow)
+redirect:
+  enabled: true
+  fromDomain: gameplatform.example.com
+  toUrl: https://www.gameplatform.example.com
+  certificateName: gameplatform-redirect-cert

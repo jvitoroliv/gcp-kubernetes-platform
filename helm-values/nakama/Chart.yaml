@@ -1,0 +1,19 @@
+# Chart.yaml
+# Chart configuration
+# Maintained by: Platform Engineering
+
+# Chart.yaml — Chart configuration
+
+apiVersion: v2
+name: nakama
+description: Nakama game server for GamePlatform Platform
+type: application
+version: 1.0.0
+appVersion: "3.11.0"
+keywords:
+  - game-server
+  - nakama
+  - realtime
+maintainers:
+  - name: GamePlatform DevOps Team
+    email: devops@gameplatform.example.com

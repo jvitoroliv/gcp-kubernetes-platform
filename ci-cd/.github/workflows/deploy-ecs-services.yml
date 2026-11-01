@@ -1,0 +1,331 @@
+name: "Deploy ECS Services"
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (dev, stg, live)"
+        required: true
+        type: string
+      nakama_image:
+        description: "Nakama ECR image tag"
+        required: false
+        type: string
+        default: ""
+      afs_image:
+        description: "AFS ECR image tag"
+        required: false
+        type: string
+        default: ""
+      ahsat_image:
+        description: "AHSAT ECR image tag"
+        required: false
+        type: string
+        default: ""
+      aes_image:
+        description: "AES ECR image tag"
+        required: false
+        type: string
+        default: ""
+      ais_image:
+        description: "AIS ECR image tag"
+        required: false
+        type: string
+        default: ""
+      lobby_image:
+        description: "Lobby ECR image tag"
+        required: false
+        type: string
+        default: ""
+      lobby_backend_image:
+        description: "Lobby Backend ECR image tag"
+        required: false
+        type: string
+        default: ""
+      terraform_version:
+        description: "Terraform version to use"
+        required: false
+        type: string
+        default: "1.13.1"
+      shared_infrastructure_ref:
+        description: "Branch/tag/commit of shared infrastructure"
+        required: false
+        type: string
+        default: "main"
+
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      LIVE_AWS_ACCESS_KEY_ID:
+        required: false
+      LIVE_AWS_SECRET_ACCESS_KEY:
+        required: false
+      ATLANTIS_GITHUB_TOKEN:
+        required: true
+
+    outputs:
+      deployment_status:
+        description: "Deployment status (success/failure)"
+        value: ${{ jobs.deploy.outputs.status }}
+      commit_sha:
+        description: "Commit SHA of tfvars update"
+        value: ${{ jobs.update-tfvars.outputs.commit_sha }}
+
+env:
+  AWS_REGION: ${{ inputs.environment == 'live' && 'sa-east-1' || (inputs.environment == 'stg' && 'us-east-1' || 'us-east-1') }}
+
+jobs:
+  update-tfvars:
+    name: "Update tfvars with new images"
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
+      tfvars_updated: ${{ steps.update.outputs.updated }}
+    steps:
+      - name: "Checkout infrastructure repo"
+        uses: actions/checkout@v4
+        with:
+          repository: example-gamedev-org/gameplatform-shared-infrastructure
+          ref: ${{ inputs.shared_infrastructure_ref }}
+          token: ${{ secrets.ATLANTIS_GITHUB_TOKEN }}
+          path: infra
+
+      - name: "Determine stack and tfvars path"
+        id: determine
+        run: |
+          ENV="${{ inputs.environment }}"
+
+          case "$ENV" in
+            dev)
+              STACK="persistent-env"
+              ;;
+            stg)
+              STACK="staging-env"
+              ;;
+            live)
+              STACK="live-env"
+              ;;
+            *)
+              echo "❌ Invalid environment: $ENV"
+              exit 1
+              ;;
+          esac
+
+          TFVARS_PATH="environments/${ENV}/${STACK}.tfvars"
+
+          echo "stack=$STACK" >> $GITHUB_OUTPUT
+          echo "tfvars_path=$TFVARS_PATH" >> $GITHUB_OUTPUT
+
+          echo "📁 Stack: $STACK"
+          echo "📄 Tfvars: $TFVARS_PATH"
+
+      - name: "Update container_images in tfvars"
+        id: update
+        working-directory: infra
+        run: |
+          TFVARS="${{ steps.determine.outputs.tfvars_path }}"
+
+          echo "📝 Updating $TFVARS with new container images..."
+
+          # Extract current images for comparison
+          echo "Current container_images:"
+          sed -n '/^container_images = {/,/^}/p' "$TFVARS"
+
+          # Create backup
+          cp "$TFVARS" "${TFVARS}.backup"
+
+          # Function to update image if provided
+          update_image() {
+            local service=$1
+            local image=$2
+
+            if [[ -n "$image" && "$image" != "none" ]]; then
+              echo "🔄 Updating $service: $image"
+              sed -i.bak '/^container_images = {/,/^}/ {
+                s|'"$service"' *= *"[^"]*"|'"$service"' = "'"$image"'"|
+              }' "$TFVARS"
+              rm -f "${TFVARS}.bak"
+              return 0
+            else
+              echo "⏭️  Skipping $service (no image provided)"
+              return 1
+            fi
+          }
+
+          # Track if any updates were made
+          UPDATED=false
+
+          # Update each service image
+          if update_image "nakama" "${{ inputs.nakama_image }}"; then UPDATED=true; fi
+          if update_image "afs" "${{ inputs.afs_image }}"; then UPDATED=true; fi
+          if update_image "ahsat" "${{ inputs.ahsat_image }}"; then UPDATED=true; fi
+          if update_image "aes" "${{ inputs.aes_image }}"; then UPDATED=true; fi
+          if update_image "ais" "${{ inputs.ais_image }}"; then UPDATED=true; fi
+          if update_image "lobby" "${{ inputs.lobby_image }}"; then UPDATED=true; fi
+          if update_image "lobby_backend" "${{ inputs.lobby_backend_image }}"; then UPDATED=true; fi
+
+          if [[ "$UPDATED" == "false" ]]; then
+            echo "⚠️  No images were updated (none provided)"
+            echo "updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo ""
+          echo "✅ Updated container_images:"
+          sed -n '/^container_images = {/,/^}/p' "$TFVARS"
+
+          echo "updated=true" >> $GITHUB_OUTPUT
+
+      - name: "Commit and push tfvars changes"
+        id: commit
+        if: steps.update.outputs.updated == 'true'
+        working-directory: infra
+        run: |
+          TFVARS="${{ steps.determine.outputs.tfvars_path }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "$TFVARS"
+
+          # Create commit message with image details
+          COMMIT_MSG="deploy: update container images for ${{ inputs.environment }}
+
+          Updated images:"
+
+          if [[ -n "${{ inputs.nakama_image }}" && "${{ inputs.nakama_image }}" != "none" ]]; then
+            COMMIT_MSG="${COMMIT_MSG}
+          - nakama: ${{ inputs.nakama_image }}"
+          fi
+
+          if [[ -n "${{ inputs.afs_image }}" && "${{ inputs.afs_image }}" != "none" ]]; then
+            COMMIT_MSG="${COMMIT_MSG}
+          - afs: ${{ inputs.afs_image }}"
+          fi
+
+          if [[ -n "${{ inputs.ahsat_image }}" && "${{ inputs.ahsat_image }}" != "none" ]]; then
+            COMMIT_MSG="${COMMIT_MSG}
+          - ahsat: ${{ inputs.ahsat_image }}"
+          fi
+
+          if [[ -n "${{ inputs.aes_image }}" && "${{ inputs.aes_image }}" != "none" ]]; then
+            COMMIT_MSG="${COMMIT_MSG}
+          - aes: ${{ inputs.aes_image }}"
+          fi
+
+          if [[ -n "${{ inputs.ais_image }}" && "${{ inputs.ais_image }}" != "none" ]]; then
+            COMMIT_MSG="${COMMIT_MSG}
+          - ais: ${{ inputs.ais_image }}"
+          fi
+
+          if [[ -n "${{ inputs.lobby_image }}" && "${{ inputs.lobby_image }}" != "none" ]]; then
+            COMMIT_MSG="${COMMIT_MSG}
+          - lobby: ${{ inputs.lobby_image }}"
+          fi
+
+          if [[ -n "${{ inputs.lobby_backend_image }}" && "${{ inputs.lobby_backend_image }}" != "none" ]]; then
+            COMMIT_MSG="${COMMIT_MSG}
+          - lobby_backend: ${{ inputs.lobby_backend_image }}"
+          fi
+
+          COMMIT_MSG="${COMMIT_MSG}
+
+          Triggered by: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          git commit -m "$COMMIT_MSG"
+
+          git push origin ${{ inputs.shared_infrastructure_ref }}
+
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+
+          echo "✅ Committed and pushed to ${{ inputs.shared_infrastructure_ref }}"
+          echo "📝 Commit SHA: $COMMIT_SHA"
+
+      - name: "Generate update summary"
+        if: always()
+        run: |
+          echo "## 📦 Container Images Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Stack**: ${{ steps.determine.outputs.stack }}" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ steps.update.outputs.updated }}" == "true" ]]; then
+            echo "**Status**: ✅ Updated" >> $GITHUB_STEP_SUMMARY
+            echo "**Commit**: ${{ steps.commit.outputs.commit_sha }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Updated Images" >> $GITHUB_STEP_SUMMARY
+
+            if [[ -n "${{ inputs.nakama_image }}" && "${{ inputs.nakama_image }}" != "none" ]]; then
+              echo "- **nakama**: \`${{ inputs.nakama_image }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ -n "${{ inputs.afs_image }}" && "${{ inputs.afs_image }}" != "none" ]]; then
+              echo "- **afs**: \`${{ inputs.afs_image }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ -n "${{ inputs.ahsat_image }}" && "${{ inputs.ahsat_image }}" != "none" ]]; then
+              echo "- **ahsat**: \`${{ inputs.ahsat_image }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ -n "${{ inputs.aes_image }}" && "${{ inputs.aes_image }}" != "none" ]]; then
+              echo "- **aes**: \`${{ inputs.aes_image }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ -n "${{ inputs.ais_image }}" && "${{ inputs.ais_image }}" != "none" ]]; then
+              echo "- **ais**: \`${{ inputs.ais_image }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ -n "${{ inputs.lobby_image }}" && "${{ inputs.lobby_image }}" != "none" ]]; then
+              echo "- **lobby**: \`${{ inputs.lobby_image }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ -n "${{ inputs.lobby_backend_image }}" && "${{ inputs.lobby_backend_image }}" != "none" ]]; then
+              echo "- **lobby_backend**: \`${{ inputs.lobby_backend_image }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "**Status**: ⏭️ Skipped (no images provided)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  deploy:
+    name: "Deploy infrastructure with Terraform"
+    needs: update-tfvars
+    if: needs.update-tfvars.outputs.tfvars_updated == 'true'
+    uses: example-gamedev-org/gameplatform-shared-actions/.github/workflows/deploy-shared-infrastructure.yml@main
+    with:
+      stack: ${{ needs.update-tfvars.outputs.stack || (inputs.environment == 'dev' && 'persistent-env' || (inputs.environment == 'stg' && 'staging-env' || 'live-env')) }}
+      environment: ${{ inputs.environment }}
+      action: apply
+      terraform_version: ${{ inputs.terraform_version }}
+      auto_approve: true
+      shared_infrastructure_ref: ${{ inputs.shared_infrastructure_ref }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      ATLANTIS_GITHUB_TOKEN: ${{ secrets.ATLANTIS_GITHUB_TOKEN }}
+
+  deployment-summary:
+    name: "Deployment Summary"
+    runs-on: ubuntu-latest
+    needs: [update-tfvars, deploy]
+    if: always()
+    steps:
+      - name: "Generate final summary"
+        run: |
+          echo "## 🚀 ECS Services Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tfvars Update**: ${{ needs.update-tfvars.outputs.tfvars_updated == 'true' && '✅ Success' || '⏭️ Skipped' }}" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.update-tfvars.outputs.tfvars_updated }}" == "true" ]]; then
+            echo "**Commit SHA**: ${{ needs.update-tfvars.outputs.commit_sha }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Terraform Deploy**: ${{ needs.deploy.outputs.deployment_status == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.deploy.result }}" == "success" ]]; then
+            echo "✅ **Deployment completed successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "ECS services will be updated with new container images in ~2-3 minutes." >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.update-tfvars.outputs.tfvars_updated }}" == "false" ]]; then
+            echo "⏭️ **Deployment skipped** - No container images were provided" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Deployment failed** - Check logs for details" >> $GITHUB_STEP_SUMMARY
+          fi

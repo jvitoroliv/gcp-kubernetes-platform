@@ -1,0 +1,11 @@
+apiVersion: v2
+name: otel-collector
+description: OpenTelemetry Collector for GamePlatform
+type: application
+version: 1.0.0
+appVersion: "0.123.0"
+
+dependencies:
+  - name: opentelemetry-collector
+    version: "0.122.2"
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts

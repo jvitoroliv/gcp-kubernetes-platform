@@ -1,0 +1,2 @@
+# Helm dependencies - ArgoCD will download these automatically
+charts/

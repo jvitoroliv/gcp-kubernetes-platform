@@ -1,0 +1,78 @@
+cert-manager:
+  installCRDs: true
+
+  # Service Account for Workload Identity (DNS-01 challenge)
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: project-dev-cert-manager@project-nonprod-env.iam.gserviceaccount.com
+
+  # Resource requests/limits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  # Webhook configuration
+  webhook:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
+
+  # CA Injector configuration
+  cainjector:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 50m
+        memory: 128Mi
+
+  # Prometheus metrics
+  prometheus:
+    enabled: false
+
+# Let's Encrypt issuer configuration
+letsencrypt:
+  enabled: true
+  # Use staging for testing, production for real certificates
+  # staging: https://acme-staging-v02.api.letsencrypt.org/directory
+  # production: https://acme-v02.api.letsencrypt.org/directory
+  server: https://acme-v02.api.letsencrypt.org/directory
+  email: infra@gameplatform.example.com
+  # DNS-01 solver using Google Cloud DNS
+  cloudDNS:
+    project: project-nonprod-env
+    # Zone created by Cloud Domains for dev-gameplatform.example.com
+    hostedZoneName: dev-gameplatform-dns
+
+# Self-signed issuer (disabled when using Let's Encrypt)
+selfSignedIssuer:
+  enabled: false
+
+# Certificates per environment
+certificates:
+  dev:
+    enabled: true
+    namespace: gameplatform-dev
+    # Use public domain for valid certificates
+    # Only wildcard + apex - Let's Encrypt doesn't allow redundant specific domains
+    domain: dev-gameplatform.example.com
+    dnsNames:
+      - "*.dev-gameplatform.example.com"
+      - "dev-gameplatform.example.com"
+  stg:
+    enabled: false
+    namespace: gameplatform-stg
+    domain: stg-gameplatform.example.com
+  prd:
+    enabled: false
+    namespace: gameplatform-prd
+    domain: gameplatform.example.com

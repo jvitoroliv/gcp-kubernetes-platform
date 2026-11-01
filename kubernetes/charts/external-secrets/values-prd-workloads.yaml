@@ -1,0 +1,12 @@
+# =============================================================================
+# External Secrets Operator - PRD Workloads Cluster
+# =============================================================================
+# For: project-prd-workloads cluster (prd project)
+# =============================================================================
+
+# Service account with Workload Identity
+serviceAccount:
+  create: true
+  name: external-secrets
+  annotations:
+    iam.gke.io/gcp-service-account: project-prd-eso-workloads@project-prd-env.iam.gserviceaccount.com

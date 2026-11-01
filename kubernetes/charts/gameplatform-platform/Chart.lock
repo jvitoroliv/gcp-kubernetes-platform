@@ -1,0 +1,27 @@
+dependencies:
+- name: nakama
+  repository: file://../services/nakama
+  version: 1.0.0
+- name: lobby
+  repository: file://../services/lobby
+  version: 1.0.0
+- name: lobby-backend
+  repository: file://../services/lobby-backend
+  version: 1.0.0
+- name: afs
+  repository: file://../services/afs
+  version: 1.0.0
+- name: ahsat
+  repository: file://../services/ahsat
+  version: 1.0.0
+- name: aes
+  repository: file://../services/aes
+  version: 1.0.0
+- name: ais
+  repository: file://../services/ais
+  version: 1.0.0
+- name: aps
+  repository: file://../services/aps
+  version: 1.0.0
+digest: sha256:cc629477b05c8d9c577c7dc6f6cc756f5b57371a84f8f9de6609c41aac0386ee
+generated: "2026-01-12T08:17:14.084953-03:00"

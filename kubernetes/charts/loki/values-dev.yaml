@@ -1,0 +1,14 @@
+loki:
+  loki:
+    storage:
+      bucketNames:
+        chunks: project-dev-loki-logs
+        ruler: project-dev-loki-logs
+        admin: project-dev-loki-logs
+
+  chunksCache:
+    enabled: false
+
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: project-dev-loki@project-nonprod-env.iam.gserviceaccount.com

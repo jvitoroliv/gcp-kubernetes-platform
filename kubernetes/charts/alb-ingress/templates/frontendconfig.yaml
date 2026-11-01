@@ -1,0 +1,13 @@
+{{- /*
+FrontendConfig for GKE Application Load Balancer
+Configures HTTP to HTTPS redirect for all traffic
+*/ -}}
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: gameplatform-alb-frontend-config
+  namespace: {{ .Values.namespace }}
+spec:
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT

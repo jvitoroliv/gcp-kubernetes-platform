@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gameplatform-config
+  namespace: gameplatform
+data:
+  # Common configuration
+  LOG_LEVEL: "info"
+  NODE_ENV: "production"
+
+  # Service endpoints (internal service discovery)
+  NAKAMA_URL: "http://nakama.gameplatform.svc.cluster.local:7350"
+  LOBBY_BACKEND_URL: "http://lobby-backend.gameplatform.svc.cluster.local:3001"
+  AFS_URL: "http://afs.gameplatform.svc.cluster.local:8080"
+  AHSAT_URL: "http://ahsat.gameplatform.svc.cluster.local:8080"
+  AES_URL: "http://aes.gameplatform.svc.cluster.local:1988"
+  AIS_URL: "http://ais.gameplatform.svc.cluster.local:5050"
+
+  # Database (will be overridden by External Secrets)
+  DB_HOST: "127.0.0.1"
+  DB_PORT: "5432"
+  DB_NAME: "gameplatform"

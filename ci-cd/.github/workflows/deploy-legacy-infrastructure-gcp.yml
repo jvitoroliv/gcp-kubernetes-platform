@@ -1,0 +1,447 @@
+name: Deploy Legacy Infrastructure GCP
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The semver of the workflow for automated tagging.
+        default: 1.0.0
+        type: string
+        required: false
+      stack:
+        description: 'Infrastructure stack to deploy (01-foundation, 02-networking, etc.)'
+        required: true
+        type: string
+      action:
+        description: 'Terragrunt action to perform'
+        required: true
+        type: string
+        # Options: plan, apply, destroy, run-all
+      terraform_version:
+        description: 'Terraform version to use'
+        required: false
+        type: string
+        default: '1.13.1'
+      terragrunt_version:
+        description: 'Terragrunt version to use'
+        required: false
+        type: string
+        default: '0.68.0'
+      auto_approve:
+        description: 'Auto approve terraform apply (use with caution)'
+        required: false
+        type: boolean
+        default: false
+      shared_infrastructure_ref:
+        description: 'Branch/tag/commit of shared infrastructure GCP to deploy'
+        required: false
+        type: string
+        default: 'main'
+
+    secrets:
+      GH_PAT:
+        description: 'GitHub PAT for cloning private Terraform modules'
+        required: true
+      GCP_WORKLOAD_IDENTITY_PROVIDER:
+        description: 'GCP Workload Identity Provider for legacy project'
+        required: true
+      GCP_SERVICE_ACCOUNT:
+        description: 'GCP Service Account email for legacy project'
+        required: true
+
+    outputs:
+      terraform_output:
+        description: 'Terraform output in JSON format'
+        value: ${{ jobs.terragrunt-deploy.outputs.terraform_output }}
+      deployment_status:
+        description: 'Deployment status (success/failure)'
+        value: ${{ jobs.terragrunt-deploy.outputs.status }}
+      stack_url:
+        description: 'URL of deployed service (if applicable)'
+        value: ${{ jobs.terragrunt-deploy.outputs.service_url }}
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_CLI_ARGS: "-no-color"
+  TERRAGRUNT_NON_INTERACTIVE: true
+  # Legacy environment always uses southamerica-east1
+  LEGACY_REGION: southamerica-east1
+  LEGACY_PROJECT: project-legacy-env
+
+jobs:
+  validate-inputs:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      stack_valid: ${{ steps.validate.outputs.stack_valid }}
+      action_valid: ${{ steps.validate.outputs.action_valid }}
+      stack_path: ${{ steps.validate.outputs.stack_path }}
+    steps:
+      - name: Validate stack input
+        id: validate
+        run: |
+          # Validate stack - Legacy has specific stacks
+          case "${{ inputs.stack }}" in
+            01-foundation|02-networking|03-storage|04-artifact-registry|05-compute|06-cloud-run|07-load-balancer|08-dns|09-vm-services-lb|10-middleware-vm|11-middleware-lb|all)
+              echo "stack_valid=true" >> $GITHUB_OUTPUT
+              if [ "${{ inputs.stack }}" = "all" ]; then
+                echo "stack_path=legacy" >> $GITHUB_OUTPUT
+              else
+                echo "stack_path=legacy/${{ inputs.stack }}" >> $GITHUB_OUTPUT
+              fi
+              ;;
+            *)
+              echo "Invalid stack: ${{ inputs.stack }}"
+              echo "Valid options: 01-foundation, 02-networking, 03-storage, 04-artifact-registry, 05-compute, 06-cloud-run, 07-load-balancer, 08-dns, 09-vm-services-lb, 10-middleware-vm, 11-middleware-lb, all"
+              echo "stack_valid=false" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+          esac
+
+          # Validate action
+          case "${{ inputs.action }}" in
+            plan|apply|destroy|run-all)
+              echo "action_valid=true" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "Invalid action: ${{ inputs.action }}"
+              echo "Valid options: plan, apply, destroy, run-all"
+              echo "action_valid=false" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+          esac
+
+          echo "All inputs validated successfully"
+
+  terragrunt-deploy:
+    name: Terragrunt ${{ inputs.action }} - ${{ inputs.stack }} (legacy)
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    if: needs.validate-inputs.outputs.stack_valid == 'true' && needs.validate-inputs.outputs.action_valid == 'true'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    outputs:
+      terraform_output: ${{ steps.terraform-output.outputs.output }}
+      status: ${{ steps.deployment-status.outputs.status }}
+      service_url: ${{ steps.extract-url.outputs.service_url }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ needs.validate-inputs.outputs.stack_path }}
+
+    steps:
+      - name: Checkout shared infrastructure GCP
+        uses: actions/checkout@v4
+        with:
+          repository: example-gamedev-org/gameplatform-shared-infrastructure-gcp
+          ref: ${{ inputs.shared_infrastructure_ref }}
+          token: ${{ secrets.GH_PAT }}
+          path: .
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: Setup Terragrunt
+        run: |
+          curl -sSLo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ inputs.terragrunt_version }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+          terragrunt --version
+
+      - name: Configure Git credentials for Terraform modules
+        env:
+          TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -e
+          if [ -z "${TOKEN}" ]; then
+            echo "GH_PAT is missing; configure it in the calling workflow."
+            exit 1
+          fi
+
+          git config --global --unset-all http.https://github.com/.extraheader || true
+          git config --system --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          git config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+
+          AUTH=$(printf "x-access-token:${TOKEN}" | base64 -w 0 2>/dev/null || printf "x-access-token:${TOKEN}" | base64)
+          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${AUTH}"
+
+          echo "::add-mask::${TOKEN}"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/example-gamedev-org/".insteadOf "https://github.com/example-gamedev-org/"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+
+          echo "Git credentials configured"
+
+      - name: Verify module repository access
+        env:
+          TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -e
+          echo "Checking access to example-gamedev-org/gameplatform-terraform..."
+          if git ls-remote "https://x-access-token:${TOKEN}@github.com/example-gamedev-org/gameplatform-terraform.git" -h > /dev/null 2>&1; then
+            echo "Access to gameplatform-terraform confirmed"
+          else
+            echo "Unable to access gameplatform-terraform with current credentials"
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: 'access_token'
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: '>= 484.0.0'
+          skip_install: false
+
+      - name: Verify GCP Identity
+        run: |
+          echo "GCP Identity Check:"
+          gcloud auth list
+          echo ""
+          echo "Current Project: ${{ env.LEGACY_PROJECT }}"
+          echo "Region: ${{ env.LEGACY_REGION }}"
+
+      - name: Terragrunt Init
+        id: init
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          echo "Running Terragrunt init..."
+
+          if [ "${{ inputs.stack }}" = "all" ] || [ "${{ inputs.action }}" = "run-all" ]; then
+            terragrunt run-all init --terragrunt-non-interactive
+          else
+            terragrunt init --terragrunt-non-interactive
+          fi
+
+          echo "init_status=success" >> $GITHUB_OUTPUT
+
+      - name: Terragrunt Validate
+        id: validate
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          if [ "${{ inputs.stack }}" = "all" ] || [ "${{ inputs.action }}" = "run-all" ]; then
+            terragrunt run-all validate --terragrunt-non-interactive
+          else
+            terragrunt validate --terragrunt-non-interactive
+          fi
+          echo "validate_status=success" >> $GITHUB_OUTPUT
+
+      - name: Terragrunt Plan
+        id: plan
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          echo "Running Terragrunt plan..."
+          set +e
+
+          if [ "${{ inputs.stack }}" = "all" ] || [ "${{ inputs.action }}" = "run-all" ]; then
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan_output.txt
+          else
+            terragrunt plan -out=tfplan --terragrunt-non-interactive 2>&1 | tee plan_output.txt
+          fi
+
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          echo "plan_exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          if [ $PLAN_EXIT_CODE -eq 0 ]; then
+            echo "Plan completed successfully"
+            echo "plan_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "Plan failed"
+            echo "plan_status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Terragrunt Apply
+        id: apply
+        if: inputs.action == 'apply' || inputs.action == 'run-all'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          echo "Applying Terragrunt changes..."
+
+          if [ "${{ inputs.stack }}" = "all" ] || [ "${{ inputs.action }}" = "run-all" ]; then
+            if [ "${{ inputs.auto_approve }}" = "true" ]; then
+              terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+            else
+              terragrunt run-all apply --terragrunt-non-interactive
+            fi
+          else
+            if [ "${{ inputs.auto_approve }}" = "true" ]; then
+              terragrunt apply -input=false -auto-approve tfplan
+            else
+              terragrunt apply -input=false tfplan
+            fi
+          fi
+
+          echo "apply_status=success" >> $GITHUB_OUTPUT
+          echo "Terragrunt apply completed successfully"
+
+      - name: Terragrunt Destroy
+        id: destroy
+        if: inputs.action == 'destroy'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          echo "Destroying infrastructure..."
+          echo "WARNING: This will destroy all resources for ${{ inputs.stack }} in legacy environment"
+
+          if [ "${{ inputs.stack }}" = "all" ]; then
+            if [ "${{ inputs.auto_approve }}" = "true" ]; then
+              terragrunt run-all destroy --terragrunt-non-interactive -auto-approve
+            else
+              terragrunt run-all destroy --terragrunt-non-interactive
+            fi
+          else
+            if [ "${{ inputs.auto_approve }}" = "true" ]; then
+              terragrunt destroy -input=false -auto-approve
+            else
+              terragrunt destroy -input=false
+            fi
+          fi
+
+          echo "destroy_status=success" >> $GITHUB_OUTPUT
+          echo "Terragrunt destroy completed successfully"
+
+      - name: Extract Terraform Output
+        id: terraform-output
+        if: (inputs.action == 'apply' || inputs.action == 'run-all') && steps.apply.outputs.apply_status == 'success'
+        continue-on-error: true
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          echo "Extracting Terragrunt outputs..."
+          terragrunt output -json > terraform-outputs.json || echo "{}" > terraform-outputs.json
+
+          OUTPUT=$(cat terraform-outputs.json | jq -c .)
+          echo "output=$OUTPUT" >> $GITHUB_OUTPUT
+
+          echo "Terragrunt outputs extracted"
+
+      - name: Extract Service URL
+        id: extract-url
+        if: (inputs.action == 'apply' || inputs.action == 'run-all') && steps.apply.outputs.apply_status == 'success'
+        continue-on-error: true
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          case "${{ inputs.stack }}" in
+            05-compute)
+              URL=$(terragrunt output -raw instance_external_ip 2>/dev/null || echo "")
+              ;;
+            06-cloud-run)
+              URL=$(terragrunt output -raw service_uri 2>/dev/null || echo "")
+              ;;
+            07-load-balancer)
+              URL=$(terragrunt output -raw lb_ip_address 2>/dev/null || echo "")
+              ;;
+            08-dns)
+              # Compact JSON to single line to avoid multiline output issues
+              URL=$(terragrunt output -json dns_zone_name_servers 2>/dev/null | jq -c '.' || echo "")
+              ;;
+            09-vm-services-lb)
+              URL=$(terragrunt output -raw lb_ip_address 2>/dev/null || echo "")
+              ;;
+            10-middleware-vm)
+              URL=$(terragrunt output -raw instance_external_ip 2>/dev/null || echo "")
+              ;;
+            11-middleware-lb)
+              URL=$(terragrunt output -raw lb_ip_address 2>/dev/null || echo "")
+              ;;
+            *)
+              URL=""
+              ;;
+          esac
+
+          echo "service_url=$URL" >> $GITHUB_OUTPUT
+          if [ -n "$URL" ]; then
+            echo "Service URL/Info: $URL"
+          fi
+
+      - name: Set Deployment Status
+        id: deployment-status
+        if: always()
+        run: |
+          case "${{ inputs.action }}" in
+            plan)
+              if [ "${{ steps.plan.outputs.plan_status }}" = "failed" ]; then
+                echo "status=failed" >> $GITHUB_OUTPUT
+              else
+                echo "status=success" >> $GITHUB_OUTPUT
+              fi
+              ;;
+            apply|run-all)
+              if [ "${{ steps.apply.outputs.apply_status }}" = "success" ]; then
+                echo "status=success" >> $GITHUB_OUTPUT
+              else
+                echo "status=failed" >> $GITHUB_OUTPUT
+              fi
+              ;;
+            destroy)
+              if [ "${{ steps.destroy.outputs.destroy_status }}" = "success" ]; then
+                echo "status=success" >> $GITHUB_OUTPUT
+              else
+                echo "status=failed" >> $GITHUB_OUTPUT
+              fi
+              ;;
+          esac
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terragrunt-legacy-${{ inputs.stack }}-${{ inputs.action }}
+          path: |
+            ${{ needs.validate-inputs.outputs.stack_path }}/plan_output.txt
+            ${{ needs.validate-inputs.outputs.stack_path }}/terraform-outputs.json
+          retention-days: 30
+
+  deployment-summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, terragrunt-deploy]
+    if: always()
+    steps:
+      - name: Generate Final Summary
+        run: |
+          echo "## Legacy Infrastructure GCP Deployment (Terragrunt)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Stack**: ${{ inputs.stack }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: legacy (project-legacy-env)" >> $GITHUB_STEP_SUMMARY
+          echo "**Region**: southamerica-east1" >> $GITHUB_STEP_SUMMARY
+          echo "**Action**: ${{ inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ needs.terragrunt-deploy.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.terragrunt-deploy.outputs.service_url }}" != "" ]; then
+            echo "**Service URL/Info**: ${{ needs.terragrunt-deploy.outputs.service_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          case "${{ needs.terragrunt-deploy.outputs.status }}" in
+            success)
+              echo "**Deployment completed successfully**" >> $GITHUB_STEP_SUMMARY
+              ;;
+            failed)
+              echo "**Deployment failed** - Check logs for details" >> $GITHUB_STEP_SUMMARY
+              ;;
+            *)
+              echo "**Deployment status unknown**" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac

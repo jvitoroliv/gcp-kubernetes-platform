@@ -1,0 +1,65 @@
+###############################################################################
+#                                                                             #
+#                    🎮 GamePlatform Platform Deployed 🎮                           #
+#                                                                             #
+###############################################################################
+
+Environment: {{ .Values.global.environment }}
+Domain: {{ .Values.global.domain }}
+
+Services deployed:
+
+{{- if .Values.nakama.enabled }}
+  ✓ Nakama (Game Server)
+    URL: https://nakama.{{ .Values.global.domain }}
+    Replicas: {{ .Values.nakama.replicaCount }}
+{{- end }}
+
+{{- if .Values.lobby.enabled }}
+  ✓ Lobby (Next.js Frontend)
+    URL: https://lobby.{{ .Values.global.domain }}
+    Replicas: {{ .Values.lobby.replicaCount }}
+{{- end }}
+
+{{- if index .Values "lobby-backend" "enabled" }}
+  ✓ Lobby Backend (NestJS API)
+    URL: https://lobby-backend.{{ .Values.global.domain }}
+    Replicas: {{ index .Values "lobby-backend" "replicaCount" }}
+{{- end }}
+
+{{- if .Values.afs.enabled }}
+  ✓ AFS (Asset File Service)
+    URL: https://afs.{{ .Values.global.domain }}
+    Replicas: {{ .Values.afs.replicaCount }}
+{{- end }}
+
+{{- if .Values.ahsat.enabled }}
+  ✓ AHSAT (Analytics Service)
+    URL: https://ahsat.{{ .Values.global.domain }}
+    Replicas: {{ .Values.ahsat.replicaCount }}
+{{- end }}
+
+{{- if .Values.aes.enabled }}
+  ✓ AES (Email Service)
+    URL: https://aes.{{ .Values.global.domain }}
+    Replicas: {{ .Values.aes.replicaCount }}
+{{- end }}
+
+{{- if .Values.ais.enabled }}
+  ✓ AIS (AI Image Service)
+    URL: https://ais.{{ .Values.global.domain }}
+    Replicas: {{ .Values.ais.replicaCount }}
+{{- end }}
+
+###############################################################################
+
+Check deployment status:
+  kubectl get pods -n {{ .Release.Namespace }}
+  kubectl get services -n {{ .Release.Namespace }}
+  kubectl get ingress -n {{ .Release.Namespace }}
+
+View logs:
+  kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }}
+
+For more information, visit:
+  https://docs.gameplatform.example.com

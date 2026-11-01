@@ -1,0 +1,26 @@
+# =============================================================================
+# External Secrets Operator - PRD Runners Cluster
+# =============================================================================
+# For: project-prd-runners cluster (prd project)
+# =============================================================================
+
+# Service account with Workload Identity
+serviceAccount:
+  create: true
+  name: external-secrets
+  annotations:
+    iam.gke.io/gcp-service-account: project-prd-eso-runners@project-prd-env.iam.gserviceaccount.com
+
+# Node selector to run on infra-pool
+nodeSelector:
+  node_pool: infra
+
+# Webhook configuration
+webhook:
+  nodeSelector:
+    node_pool: infra
+
+# Cert controller configuration
+certController:
+  nodeSelector:
+    node_pool: infra

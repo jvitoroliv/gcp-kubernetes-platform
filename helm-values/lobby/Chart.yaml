@@ -1,0 +1,16 @@
+# Chart.yaml
+# Chart configuration
+
+apiVersion: v2
+name: lobby
+description: Next.js frontend for GamePlatform Platform
+type: application
+version: 1.0.0
+appVersion: "15.4.6"
+keywords:
+  - frontend
+  - nextjs
+  - web
+maintainers:
+  - name: GamePlatform DevOps Team
+    email: devops@gameplatform.example.com

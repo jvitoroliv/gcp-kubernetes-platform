@@ -1,0 +1,21 @@
+loki:
+  loki:
+    storage:
+      bucketNames:
+        chunks: project-prd-loki-logs
+        ruler: project-prd-loki-logs
+        admin: project-prd-loki-logs
+
+  singleBinary:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: project-prd-loki@project-prd-env.iam.gserviceaccount.com

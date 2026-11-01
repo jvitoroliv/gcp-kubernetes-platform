@@ -1,0 +1,72 @@
+# =============================================================================
+# External Secrets Operator - Values
+# =============================================================================
+# Helm chart: oci://ghcr.io/external-secrets/charts/external-secrets
+#
+# Syncs secrets from GCP Secret Manager to Kubernetes Secrets
+# =============================================================================
+
+# Install CRDs
+installCRDs: true
+
+# Replica count
+replicaCount: 1
+
+# Leader election (required for HA)
+leaderElect: false
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: external-secrets
+  # Workload Identity annotation - set per cluster
+  # annotations:
+  #   iam.gke.io/gcp-service-account: <eso-sa-email>
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Resources
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Webhook configuration
+webhook:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# Cert controller
+certController:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi

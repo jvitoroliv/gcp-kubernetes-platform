@@ -1,0 +1,16 @@
+{{- /*
+Google-managed SSL Certificate for the Application Load Balancer
+This is referenced by the Ingress annotation
+NOTE: GKE ManagedCertificate does NOT support wildcard domains (*.domain)
+Must list each subdomain individually (max 100 domains per certificate)
+*/ -}}
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ .Values.sslCertificateName }}
+  namespace: {{ .Values.namespace }}
+spec:
+  domains:
+    {{- range $name, $svc := .Values.services }}
+    - {{ $svc.hostname }}.{{ $.Values.domain }}
+    {{- end }}

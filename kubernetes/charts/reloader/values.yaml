@@ -1,0 +1,12 @@
+reloader:
+  reloader:
+    watchGlobally: true
+    enableHA: false
+    deployment:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi

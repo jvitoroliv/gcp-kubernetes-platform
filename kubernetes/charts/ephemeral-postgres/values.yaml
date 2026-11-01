@@ -1,0 +1,25 @@
+# GCS dump configuration
+dumpBucket: "gameplatform-ephemeral-db-dumps"
+dumpFile: "latest.sql.gz"
+
+# PostgreSQL configuration
+postgresUser: "gameplatform"
+postgresDb: "nakamatest"
+
+# Storage configuration
+storage:
+  size: "5Gi"
+  storageClass: ""
+
+# Resource limits
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# Workload Identity
+serviceAccount:
+  annotations: {}

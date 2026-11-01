@@ -1,0 +1,93 @@
+# values.yaml
+# Helm chart values
+
+replicaCount: 1
+
+image:
+  repository: us-east1-docker.pkg.dev/platform-nonprod-env/platform-dev-images/ahsat
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 6969
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+serviceAccount:
+  create: true
+  name: ""
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+ingress:
+  enabled: true
+  className: "gce"
+  annotations: {}
+  hosts:
+    - host: ahsat.dev.platform
+      paths:
+        - path: /*
+          pathType: ImplementationSpecific
+  tls: []
+
+env: []
+
+# Environment variables from ConfigMap and Secrets
+envFrom:
+  - configMapRef:
+      name: ahsat-config
+  - secretRef:
+      name: ahsat-secrets
+
+# External Secrets configuration (GCP Secret Manager)
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: gcp-secret-manager
+    kind: ClusterSecretStore
+  secrets:
+    # Database - from Terraform stack 04-database
+    - secretKey: DB_HOST
+      remoteKey: platform-dev-db-host
+    - secretKey: DB_PASSWORD
+      remoteKey: platform-dev-db-nakama-password
+    # Nakama - manual secrets
+    - secretKey: NK_HTTP_KEY
+      remoteKey: platform-dev-nakama-http-key
+    # AI - manual secrets
+    - secretKey: AI_API_KEY
+      remoteKey: platform-dev-ai-api-key
+    - secretKey: AIS_APP_SECRET
+      remoteKey: platform-dev-ais-app-secret
+    # Email - manual secrets
+    - secretKey: AES_API_KEY
+      remoteKey: platform-dev-aes-api-key
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Service monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /metrics
+  labels: {}

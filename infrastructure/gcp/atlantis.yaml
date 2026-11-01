@@ -1,0 +1,409 @@
+# =============================================================================
+# ATLANTIS CONFIGURATION
+# Terraform automation for GCP infrastructure
+# =============================================================================
+
+version: 3
+automerge: false
+parallel_plan: true
+parallel_apply: false
+
+# =============================================================================
+# PROJECTS
+# =============================================================================
+
+projects:
+  # ---------------------------------------------------------------------------
+  # 01-FOUNDATION - DEV
+  # ---------------------------------------------------------------------------
+  - name: 01-foundation-dev
+    dir: stacks/01-foundation
+    workspace: dev
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/dev/01-foundation*.tfvars"
+        - "../../environments/dev/01-foundation*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 01-FOUNDATION - STG
+  # ---------------------------------------------------------------------------
+  - name: 01-foundation-stg
+    dir: stacks/01-foundation
+    workspace: stg
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/stg/01-foundation*.tfvars"
+        - "../../environments/stg/01-foundation*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 01-FOUNDATION - PRD
+  # ---------------------------------------------------------------------------
+  - name: 01-foundation-prd
+    dir: stacks/01-foundation
+    workspace: prd
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/prd/01-foundation*.tfvars"
+        - "../../environments/prd/01-foundation*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+      - mergeable
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 02-NETWORKING - DEV
+  # ---------------------------------------------------------------------------
+  - name: 02-networking-dev
+    dir: stacks/02-networking
+    workspace: dev
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/dev/02-networking*.tfvars"
+        - "../../environments/dev/02-networking*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 02-NETWORKING - STG
+  # ---------------------------------------------------------------------------
+  - name: 02-networking-stg
+    dir: stacks/02-networking
+    workspace: stg
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/stg/02-networking*.tfvars"
+        - "../../environments/stg/02-networking*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 02-NETWORKING - PRD
+  # ---------------------------------------------------------------------------
+  - name: 02-networking-prd
+    dir: stacks/02-networking
+    workspace: prd
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/prd/02-networking*.tfvars"
+        - "../../environments/prd/02-networking*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+      - mergeable
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 03-GKE - DEV
+  # ---------------------------------------------------------------------------
+  - name: 03-gke-dev
+    dir: stacks/03-gke
+    workspace: dev
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/dev/03-gke*.tfvars"
+        - "../../environments/dev/03-gke*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 03-GKE - STG
+  # ---------------------------------------------------------------------------
+  - name: 03-gke-stg
+    dir: stacks/03-gke
+    workspace: stg
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/stg/03-gke*.tfvars"
+        - "../../environments/stg/03-gke*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 03-GKE - PRD
+  # ---------------------------------------------------------------------------
+  - name: 03-gke-prd
+    dir: stacks/03-gke
+    workspace: prd
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/prd/03-gke*.tfvars"
+        - "../../environments/prd/03-gke*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+      - mergeable
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 04-DATABASE - DEV
+  # ---------------------------------------------------------------------------
+  - name: 04-database-dev
+    dir: stacks/04-database
+    workspace: dev
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/dev/04-database*.tfvars"
+        - "../../environments/dev/04-database*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 04-DATABASE - STG
+  # ---------------------------------------------------------------------------
+  - name: 04-database-stg
+    dir: stacks/04-database
+    workspace: stg
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/stg/04-database*.tfvars"
+        - "../../environments/stg/04-database*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 04-DATABASE - PRD
+  # ---------------------------------------------------------------------------
+  - name: 04-database-prd
+    dir: stacks/04-database
+    workspace: prd
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/prd/04-database*.tfvars"
+        - "../../environments/prd/04-database*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+      - mergeable
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 05-DNS-LB - DEV
+  # ---------------------------------------------------------------------------
+  - name: 05-dns-lb-dev
+    dir: stacks/05-dns-lb
+    workspace: dev
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/dev/05-dns-lb*.tfvars"
+        - "../../environments/dev/05-dns-lb*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 05-DNS-LB - STG
+  # ---------------------------------------------------------------------------
+  - name: 05-dns-lb-stg
+    dir: stacks/05-dns-lb
+    workspace: stg
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/stg/05-dns-lb*.tfvars"
+        - "../../environments/stg/05-dns-lb*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 05-DNS-LB - PRD
+  # ---------------------------------------------------------------------------
+  - name: 05-dns-lb-prd
+    dir: stacks/05-dns-lb
+    workspace: prd
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/prd/05-dns-lb*.tfvars"
+        - "../../environments/prd/05-dns-lb*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+      - mergeable
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 06-WORKLOADS - DEV
+  # ---------------------------------------------------------------------------
+  - name: 06-workloads-dev
+    dir: stacks/06-workloads
+    workspace: dev
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/dev/06-workloads*.tfvars"
+        - "../../environments/dev/06-workloads*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 06-WORKLOADS - STG
+  # ---------------------------------------------------------------------------
+  - name: 06-workloads-stg
+    dir: stacks/06-workloads
+    workspace: stg
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/stg/06-workloads*.tfvars"
+        - "../../environments/stg/06-workloads*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 06-WORKLOADS - PRD
+  # ---------------------------------------------------------------------------
+  - name: 06-workloads-prd
+    dir: stacks/06-workloads
+    workspace: prd
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/prd/06-workloads*.tfvars"
+        - "../../environments/prd/06-workloads*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+      - mergeable
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 07-VPN-BASTION - DEV
+  # ---------------------------------------------------------------------------
+  - name: 07-vpn-bastion-dev
+    dir: stacks/07-vpn-bastion
+    workspace: dev
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/dev/07-vpn-bastion*.tfvars"
+        - "../../environments/dev/07-vpn-bastion*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 07-VPN-BASTION - STG
+  # ---------------------------------------------------------------------------
+  - name: 07-vpn-bastion-stg
+    dir: stacks/07-vpn-bastion
+    workspace: stg
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/stg/07-vpn-bastion*.tfvars"
+        - "../../environments/stg/07-vpn-bastion*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+    workflow: gcp-workflow
+
+  # ---------------------------------------------------------------------------
+  # 07-VPN-BASTION - PRD
+  # ---------------------------------------------------------------------------
+  - name: 07-vpn-bastion-prd
+    dir: stacks/07-vpn-bastion
+    workspace: prd
+    terraform_version: v1.5.0
+    autoplan:
+      when_modified:
+        - "*.tf"
+        - "../../environments/prd/07-vpn-bastion*.tfvars"
+        - "../../environments/prd/07-vpn-bastion*.hcl"
+      enabled: true
+    apply_requirements:
+      - approved
+      - mergeable
+    workflow: gcp-workflow
+
+# =============================================================================
+# WORKFLOWS
+# =============================================================================
+
+workflows:
+  gcp-workflow:
+    plan:
+      steps:
+        - env:
+            name: STACK_NAME
+            command: 'echo "${HEAD_BRANCH_NAME:-main}" | grep -oE "[0-9]+-[a-z-]+" | head -1 || basename $(pwd)'
+        - env:
+            name: ENV_NAME
+            command: 'echo "${WORKSPACE}"'
+        - run: |
+            echo "Planning ${STACK_NAME} for ${ENV_NAME} environment"
+        - init:
+            extra_args:
+              - "-backend-config=../../environments/${ENV_NAME}/$(basename $(pwd))-backend.hcl"
+        - plan:
+            extra_args:
+              - "-var-file=../../environments/${ENV_NAME}/$(basename $(pwd)).tfvars"
+    apply:
+      steps:
+        - env:
+            name: ENV_NAME
+            command: 'echo "${WORKSPACE}"'
+        - run: |
+            echo "Applying $(basename $(pwd)) for ${ENV_NAME} environment"
+        - apply

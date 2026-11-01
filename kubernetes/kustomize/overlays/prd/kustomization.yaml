@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: gameplatform-prd
+
+bases:
+  - ../../base
+
+resources:
+  - namespace-prd.yaml
+  - ingress-prd.yaml
+
+patchesStrategicMerge:
+  - configmap-prd.yaml
+
+commonLabels:
+  environment: prd
+  app.kubernetes.io/environment: prd
+
+images:
+  - name: nakama
+    newName: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images/nakama
+    newTag: prd
+  - name: lobby
+    newName: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images/lobby
+    newTag: prd
+  - name: lobby-backend
+    newName: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images/lobby-backend
+    newTag: prd
+  - name: afs
+    newName: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images/afs
+    newTag: prd
+  - name: ahsat
+    newName: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images/ahsat
+    newTag: prd
+  - name: aes
+    newName: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images/aes
+    newTag: prd
+  - name: ais
+    newName: southamerica-east1-docker.pkg.dev/project-prd-env/project-prd-images/ais
+    newTag: prd

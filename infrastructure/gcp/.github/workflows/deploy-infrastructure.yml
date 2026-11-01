@@ -1,0 +1,269 @@
+name: Deploy Shared Infrastructure GCP
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: 'Infrastructure stack to deploy'
+        required: true
+        type: choice
+        options:
+          - 01-foundation
+          - 02-networking
+          - 03-gke
+          - 04-database
+          - 05-dns-lb
+          - 06-workloads
+          - 07-vpn-bastion
+          - 08-gke-runners
+          - 09-metabase-database
+          - 10-dns-records
+          - 11-redis
+          - 12-monitoring
+        default: '01-foundation'
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - stg
+          - prd
+          - nonprod
+        default: 'dev'
+      action:
+        description: 'Terraform action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: 'plan'
+      auto_approve:
+        description: 'Auto approve terraform apply/destroy (DANGEROUS)'
+        required: false
+        type: boolean
+        default: false
+      terraform_version:
+        description: 'Terraform version'
+        required: false
+        type: string
+        default: '1.13.1'
+
+jobs:
+  # Pre-flight checks
+  preflight-checks:
+    name: Pre-flight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      can_proceed: ${{ steps.validate.outputs.can_proceed }}
+    steps:
+      - name: Validate deployment requirements
+        id: validate
+        run: |
+          echo "Validating deployment requirements..."
+
+          DANGEROUS_OP=false
+
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            echo "DESTRUCTION requested for ${{ inputs.stack }} in ${{ inputs.environment }}"
+            DANGEROUS_OP=true
+          fi
+
+          if [ "${{ inputs.environment }}" = "prd" ] && [ "${{ inputs.action }}" != "plan" ]; then
+            echo "PRODUCTION deployment requested"
+            DANGEROUS_OP=true
+          fi
+
+          if [ "$DANGEROUS_OP" = "true" ]; then
+            echo "This is a potentially dangerous operation!"
+            echo "Please review carefully before proceeding."
+
+            if [ "${{ inputs.auto_approve }}" = "false" ]; then
+              echo "Auto-approve is disabled for safety. Enable it to proceed."
+              echo "can_proceed=false" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "Auto-approve is ENABLED. Proceeding with dangerous operation."
+            fi
+          fi
+
+          echo "Pre-flight checks passed"
+          echo "can_proceed=true" >> $GITHUB_OUTPUT
+
+      - name: Display deployment plan
+        run: |
+          echo "## Deployment Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Stack** | ${{ inputs.stack }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Action** | ${{ inputs.action }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Auto Approve** | ${{ inputs.auto_approve }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Terraform Version** | ${{ inputs.terraform_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cloud Provider** | GCP |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            echo "**WARNING: DESTRUCTION OPERATION**" >> $GITHUB_STEP_SUMMARY
+            echo "This will destroy all resources in the ${{ inputs.stack }} stack!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ inputs.environment }}" = "prd" ]; then
+            echo "**WARNING: PRODUCTION DEPLOYMENT**" >> $GITHUB_STEP_SUMMARY
+            echo "This operation will affect production infrastructure!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Deploy infrastructure using reusable workflow (nonprod: dev, stg, nonprod)
+  deploy-infrastructure-nonprod:
+    name: Deploy Infrastructure (nonprod)
+    needs: preflight-checks
+    if: needs.preflight-checks.outputs.can_proceed == 'true' && inputs.environment != 'prd'
+    uses: example-gamedev-org/gameplatform-shared-actions/.github/workflows/deploy-shared-infrastructure-gcp.yml@main
+    with:
+      stack: ${{ inputs.stack }}
+      environment: ${{ inputs.environment }}
+      action: ${{ inputs.action }}
+      terraform_version: ${{ inputs.terraform_version }}
+      auto_approve: ${{ inputs.auto_approve }}
+      shared_infrastructure_ref: ${{ github.ref_name }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+  # Deploy infrastructure using reusable workflow (prd only)
+  deploy-infrastructure-prd:
+    name: Deploy Infrastructure (prd)
+    needs: preflight-checks
+    if: needs.preflight-checks.outputs.can_proceed == 'true' && inputs.environment == 'prd'
+    uses: example-gamedev-org/gameplatform-shared-actions/.github/workflows/deploy-shared-infrastructure-gcp.yml@main
+    with:
+      stack: ${{ inputs.stack }}
+      environment: ${{ inputs.environment }}
+      action: ${{ inputs.action }}
+      terraform_version: ${{ inputs.terraform_version }}
+      auto_approve: ${{ inputs.auto_approve }}
+      shared_infrastructure_ref: ${{ github.ref_name }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER_PRD }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_PRD }}
+
+  # Post-deployment actions
+  post-deployment:
+    name: Post-Deployment
+    needs: [preflight-checks, deploy-infrastructure-nonprod, deploy-infrastructure-prd]
+    if: always() && needs.preflight-checks.outputs.can_proceed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment Results
+        run: |
+          echo "## Deployment Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Get status from whichever job ran (nonprod or prd)
+          if [ "${{ inputs.environment }}" = "prd" ]; then
+            STATUS="${{ needs.deploy-infrastructure-prd.outputs.deployment_status }}"
+            SERVICE_URL="${{ needs.deploy-infrastructure-prd.outputs.stack_url }}"
+          else
+            STATUS="${{ needs.deploy-infrastructure-nonprod.outputs.deployment_status }}"
+            SERVICE_URL="${{ needs.deploy-infrastructure-nonprod.outputs.stack_url }}"
+          fi
+
+          case "$STATUS" in
+            success)
+              echo "**Deployment Status**: SUCCESS" >> $GITHUB_STEP_SUMMARY
+              if [ -n "$SERVICE_URL" ]; then
+                echo "**Service URL/Info**: $SERVICE_URL" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            failure|failed)
+              echo "**Deployment Status**: FAILED" >> $GITHUB_STEP_SUMMARY
+              echo "Check the deployment logs for error details." >> $GITHUB_STEP_SUMMARY
+              ;;
+            *)
+              echo "**Deployment Status**: UNKNOWN" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: GKE-specific Post-deployment
+        if: inputs.stack == '03-gke' && inputs.action == 'apply' && (needs.deploy-infrastructure-nonprod.outputs.deployment_status == 'success' || needs.deploy-infrastructure-prd.outputs.deployment_status == 'success')
+        run: |
+          echo "## GKE Setup Instructions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "GKE cluster has been deployed! To connect:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# Get credentials (requires VPN connection since private endpoint is enabled)" >> $GITHUB_STEP_SUMMARY
+          echo "gcloud container clusters get-credentials gameplatform-${{ inputs.environment }} \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --region southamerica-east1 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project gameplatform-${{ inputs.environment }}-env" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Verify connection" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get nodes" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: VPN-Bastion-specific Post-deployment
+        if: inputs.stack == '07-vpn-bastion' && inputs.action == 'apply' && (needs.deploy-infrastructure-nonprod.outputs.deployment_status == 'success' || needs.deploy-infrastructure-prd.outputs.deployment_status == 'success')
+        run: |
+          echo "## VPN & Bastion Setup Instructions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Bastion Access (via IAP)" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud compute ssh gameplatform-${{ inputs.environment }}-bastion \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --zone=southamerica-east1-a \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --tunnel-through-iap \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project=gameplatform-${{ inputs.environment }}-env" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### VPN Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "Check Terraform outputs for VPN gateway IPs to configure your side." >> $GITHUB_STEP_SUMMARY
+
+      - name: GKE-Runners-specific Post-deployment
+        if: inputs.stack == '08-gke-runners' && inputs.action == 'apply' && (needs.deploy-infrastructure-nonprod.outputs.deployment_status == 'success' || needs.deploy-infrastructure-prd.outputs.deployment_status == 'success')
+        run: |
+          echo "## GKE Runners Cluster Setup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Connect to Runners Cluster" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "gcloud container clusters get-credentials gameplatform-${{ inputs.environment }}-runners \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --region southamerica-east1 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --project gameplatform-${{ inputs.environment }}-env" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps: Install ARC" >> $GITHUB_STEP_SUMMARY
+          echo "1. Create namespace: \`kubectl create namespace arc-systems\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Install ARC controller with Helm" >> $GITHUB_STEP_SUMMARY
+          echo "3. Create GitHub PAT/App secret" >> $GITHUB_STEP_SUMMARY
+          echo "4. Install runner scale sets (light + heavy)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See \`terragrunt output arc_installation_instructions\` for full details." >> $GITHUB_STEP_SUMMARY
+
+      - name: Success Metrics
+        if: needs.deploy-infrastructure-nonprod.outputs.deployment_status == 'success' || needs.deploy-infrastructure-prd.outputs.deployment_status == 'success'
+        run: |
+          echo "Deployment completed successfully!"
+          echo "Stack: ${{ inputs.stack }}"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Action: ${{ inputs.action }}"
+
+      - name: Failure Handling
+        if: needs.deploy-infrastructure-nonprod.outputs.deployment_status == 'failed' || needs.deploy-infrastructure-prd.outputs.deployment_status == 'failed'
+        run: |
+          echo "Deployment failed!"
+          echo "Check the terraform-deploy job logs for detailed error information."
+          echo ""
+          echo "Common troubleshooting steps:"
+          echo "1. Verify GCP Workload Identity Federation is configured correctly"
+          echo "2. Check if required APIs are enabled in the GCP project"
+          echo "3. Verify Terraform state bucket exists and is accessible"
+          echo "4. Check variable values in tfvars files"
+
+          exit 1

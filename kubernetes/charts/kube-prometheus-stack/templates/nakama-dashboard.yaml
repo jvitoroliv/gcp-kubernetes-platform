@@ -1,0 +1,492 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nakama-game-server-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  nakama-game-server.json: |
+    {
+      "title": "Nakama Game Server Metrics",
+      "uid": "nakama-game-server",
+      "tags": ["nakama", "game-server", "gameplatform"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "type": "constant",
+            "current": { "value": "gameplatform-dev" },
+            "hide": 2
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "row",
+          "title": "Overview - Request Metrics",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "collapsed": false,
+          "id": 1
+        },
+        {
+          "type": "stat",
+          "title": "Total Requests (24h)",
+          "id": 2,
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "value": null, "color": "green" }
+                ]
+              }
+            }
+          },
+          "targets": [
+            {
+              "expr": "increase(nakama_overall_request_count{job=~\".*nakama.*\"}[24h])",
+              "refId": "A"
+            }
+          ],
+          "options": { "textMode": "value_and_name" }
+        },
+        {
+          "type": "stat",
+          "title": "Requests/sec (current)",
+          "id": 3,
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "value": null, "color": "blue" }
+                ]
+              }
+            }
+          },
+          "targets": [
+            {
+              "expr": "rate(nakama_overall_request_count{job=~\".*nakama.*\"}[5m])",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Active Sessions",
+          "id": 4,
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "value": null, "color": "purple" }
+                ]
+              }
+            }
+          },
+          "targets": [
+            {
+              "expr": "nakama_presences{job=~\".*nakama.*\"}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "JavaScript Runtimes",
+          "id": 5,
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "value": null, "color": "yellow" }
+                ]
+              }
+            }
+          },
+          "targets": [
+            {
+              "expr": "nakama_javascript_runtimes{job=~\".*nakama.*\"}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Request Rate (req/sec)",
+          "id": 6,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "rate(nakama_overall_request_count{job=~\".*nakama.*\"}[5m])",
+              "legendFormat": "Requests/sec",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Active Sessions & Presences",
+          "id": 7,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "nakama_presences{job=~\".*nakama.*\"}",
+              "legendFormat": "Active Presences",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Latency Metrics",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+          "collapsed": false,
+          "id": 8
+        },
+        {
+          "type": "timeseries",
+          "title": "Request Latency Percentiles",
+          "id": 9,
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "nakama_overall_latency_ms{job=~\".*nakama.*\", quantile=\"0.5\"}",
+              "legendFormat": "p50",
+              "refId": "A"
+            },
+            {
+              "expr": "nakama_overall_latency_ms{job=~\".*nakama.*\", quantile=\"0.75\"}",
+              "legendFormat": "p75",
+              "refId": "B"
+            },
+            {
+              "expr": "nakama_overall_latency_ms{job=~\".*nakama.*\", quantile=\"0.95\"}",
+              "legendFormat": "p95",
+              "refId": "C"
+            },
+            {
+              "expr": "nakama_overall_latency_ms{job=~\".*nakama.*\", quantile=\"0.99\"}",
+              "legendFormat": "p99",
+              "refId": "D"
+            },
+            {
+              "expr": "nakama_overall_latency_ms{job=~\".*nakama.*\", quantile=\"0.999\"}",
+              "legendFormat": "p99.9",
+              "refId": "E"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Database Connection Pool",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+          "collapsed": false,
+          "id": 10
+        },
+        {
+          "type": "timeseries",
+          "title": "Database Connections",
+          "id": 11,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "nakama_db_total_open_conns{job=~\".*nakama.*\"}",
+              "legendFormat": "Total Open",
+              "refId": "A"
+            },
+            {
+              "expr": "nakama_db_in_use_conns{job=~\".*nakama.*\"}",
+              "legendFormat": "In Use",
+              "refId": "B"
+            },
+            {
+              "expr": "nakama_db_idle_conns{job=~\".*nakama.*\"}",
+              "legendFormat": "Idle",
+              "refId": "C"
+            },
+            {
+              "expr": "nakama_db_max_open_conns{job=~\".*nakama.*\"}",
+              "legendFormat": "Max Open",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Database Wait Stats",
+          "id": 12,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "rate(nakama_db_total_wait_count{job=~\".*nakama.*\"}[5m])",
+              "legendFormat": "Wait Count/sec",
+              "refId": "A"
+            },
+            {
+              "expr": "rate(nakama_db_total_max_idle_closed{job=~\".*nakama.*\"}[5m])",
+              "legendFormat": "Max Idle Closed/sec",
+              "refId": "B"
+            },
+            {
+              "expr": "rate(nakama_db_total_max_lifetime_closed{job=~\".*nakama.*\"}[5m])",
+              "legendFormat": "Max Lifetime Closed/sec",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Network & Data Transfer",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+          "collapsed": false,
+          "id": 13
+        },
+        {
+          "type": "timeseries",
+          "title": "Network Bytes (Sent/Received)",
+          "id": 14,
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "binBps",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "rate(nakama_overall_sent_bytes{job=~\".*nakama.*\"}[5m])",
+              "legendFormat": "Sent Bytes/sec",
+              "refId": "A"
+            },
+            {
+              "expr": "rate(nakama_overall_recv_bytes{job=~\".*nakama.*\"}[5m])",
+              "legendFormat": "Received Bytes/sec",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Runtime & Resource Usage",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+          "collapsed": false,
+          "id": 15
+        },
+        {
+          "type": "timeseries",
+          "title": "JavaScript Runtimes",
+          "id": 16,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "nakama_javascript_runtimes{job=~\".*nakama.*\"}",
+              "legendFormat": "JS Runtimes",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Go Goroutines",
+          "id": 17,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "go_goroutines{job=~\".*nakama.*\"}",
+              "legendFormat": "Goroutines",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory Usage (Go Heap)",
+          "id": 18,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 49 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "go_memstats_heap_alloc_bytes{job=~\".*nakama.*\"}",
+              "legendFormat": "Heap Allocated",
+              "refId": "A"
+            },
+            {
+              "expr": "go_memstats_heap_inuse_bytes{job=~\".*nakama.*\"}",
+              "legendFormat": "Heap In Use",
+              "refId": "B"
+            },
+            {
+              "expr": "go_memstats_heap_idle_bytes{job=~\".*nakama.*\"}",
+              "legendFormat": "Heap Idle",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "GC Pause Duration",
+          "id": 19,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 49 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "go_gc_duration_seconds{job=~\".*nakama.*\", quantile=\"0.5\"}",
+              "legendFormat": "p50",
+              "refId": "A"
+            },
+            {
+              "expr": "go_gc_duration_seconds{job=~\".*nakama.*\", quantile=\"0.75\"}",
+              "legendFormat": "p75",
+              "refId": "B"
+            },
+            {
+              "expr": "go_gc_duration_seconds{job=~\".*nakama.*\", quantile=\"1\"}",
+              "legendFormat": "Max",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Container CPU Usage",
+          "id": 20,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 57 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cores",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"gameplatform-.*\", pod=~\".*nakama.*\", container!=\"\"}[5m]))",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Container Memory Usage",
+          "id": 21,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 57 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": { "lineWidth": 2 },
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pod) (container_memory_usage_bytes{namespace=~\"gameplatform-.*\", pod=~\".*nakama.*\", container!=\"\"})",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }

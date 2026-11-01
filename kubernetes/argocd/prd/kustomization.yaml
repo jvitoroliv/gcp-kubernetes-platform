@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - application-prd.yaml
+  - reloader.yaml
+  - cert-manager.yaml
+  - ingress-nginx.yaml
+  - alb-ingress.yaml
+  - metabase.yaml
+  - monitoring-prometheus.yaml
+  - monitoring-loki.yaml
+  - monitoring-promtail.yaml
+  - monitoring-tempo.yaml
+  - monitoring-otel-collector.yaml

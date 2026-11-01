@@ -1,0 +1,161 @@
+# Production values for Metabase
+# Deployed to namespace: metabase
+
+replicaCount: 1
+
+image:
+  repository: metabase/metabase
+  tag: "v0.56.3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: "metabase"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "metabase"
+
+podSecurityContext:
+  runAsNonRoot: false
+
+securityContext:
+  runAsUser: 0
+  allowPrivilegeEscalation: false
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+    cloud.google.com/backend-config: '{"default": "metabase-backend-config"}'
+
+ingress:
+  enabled: true
+  className: "gce"
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "metabase-prd-alb-ip"
+    networking.gke.io/managed-certificates: "metabase-prd-cert"
+    kubernetes.io/ingress.allow-http: "true"
+    networking.gke.io/v1beta1.FrontendConfig: "metabase-frontend-config"
+  hosts:
+    - host: ani-metrics.gameplatform.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          port: 3000
+  tls: []
+
+# GKE ManagedCertificate for ALB
+managedCertificate:
+  enabled: true
+  name: metabase-prd-cert
+  domains:
+    - ani-metrics.gameplatform.example.com
+
+# FrontendConfig for HTTP to HTTPS redirect
+frontendConfig:
+  enabled: true
+  name: metabase-frontend-config
+  redirectToHttps: true
+
+# BackendConfig for GKE Ingress health checks
+backendConfig:
+  enabled: true
+  name: metabase-backend-config
+  timeoutSec: 60
+  healthCheck:
+    checkIntervalSec: 15
+    timeoutSec: 10
+    healthyThreshold: 1
+    unhealthyThreshold: 3
+    requestPath: /api/health
+    port: 3000
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  timeoutSeconds: 10
+  successThreshold: 1
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+# Environment variables
+env:
+  - name: MB_JETTY_HOST
+    value: "0.0.0.0"
+  - name: MB_JETTY_PORT
+    value: "3000"
+  - name: MB_DB_TYPE
+    value: "postgres"
+  - name: JAVA_OPTS
+    value: "-Xms512m -Xmx2g"
+  - name: JAVA_TIMEZONE
+    value: "America/Sao_Paulo"
+  - name: MB_SITE_NAME
+    value: "GamePlatform Analytics"
+  - name: MB_SITE_URL
+    value: "https://ani-metrics.gameplatform.example.com"
+  - name: MB_ANON_TRACKING_ENABLED
+    value: "false"
+  - name: MB_CHECK_FOR_UPDATES
+    value: "false"
+
+# Environment variables from Secrets
+envFrom:
+  - secretRef:
+      name: metabase-secrets
+
+# External Secrets configuration (GCP Secret Manager)
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: gcp-secret-manager
+    kind: ClusterSecretStore
+  secrets:
+    - secretKey: MB_DB_CONNECTION_URI
+      remoteKey: project-prd-metabase-db-connection
+
+# Service monitor for Prometheus
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  path: /api/health
+  labels: {}

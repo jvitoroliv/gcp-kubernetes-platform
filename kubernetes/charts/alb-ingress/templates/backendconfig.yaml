@@ -1,0 +1,27 @@
+{{- /*
+BackendConfig resources for GKE Application Load Balancer
+Configures health checks, timeouts, and connection draining for each service
+*/ -}}
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: {{ $name }}-backend-config
+  namespace: {{ $.Values.namespace }}
+spec:
+  healthCheck:
+    checkIntervalSec: 15
+    timeoutSec: 5
+    healthyThreshold: 2
+    unhealthyThreshold: 3
+    type: HTTP
+    requestPath: {{ $svc.healthCheckPath }}
+    port: {{ $svc.port }}
+  timeoutSec: {{ $svc.timeoutSec }}
+  connectionDraining:
+    drainingTimeoutSec: 30
+  logging:
+    enable: true
+    sampleRate: 1.0
+{{- end }}

@@ -1,0 +1,4 @@
+# AWS SDK for Python
+boto3>=1.28.0
+
+# No additional dependencies required - using standard library only

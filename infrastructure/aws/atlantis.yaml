@@ -1,0 +1,654 @@
+version: 3
+
+# Atlantis config for shared infrastructure
+projects:
+
+# Development Environment
+  - name: networking-dev
+    dir: stacks/networking
+    workflow: networking-dev
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/networking/**
+        - environments/dev/networking*.hcl
+        - environments/dev/networking*.tfvars
+    
+  - name: dns-and-alb-dev
+    dir: stacks/dns-and-alb
+    workflow: dns-and-alb-dev
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/dns-and-alb/**
+        - environments/dev/dns-and-alb*.hcl
+        - environments/dev/dns-and-alb*.tfvars
+
+  - name: runners-dev
+    dir: stacks/runners
+    workflow: runners-dev
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/runners/**
+        - environments/dev/runners*.hcl
+        - environments/dev/runners*.tfvars
+
+  - name: atlantis-dev
+    dir: stacks/atlantis
+    workflow: atlantis-dev
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/atlantis/**
+        - environments/dev/atlantis*.hcl
+        - environments/dev/atlantis*.tfvars
+
+  - name: postgres-dev
+    dir: stacks/postgres
+    workflow: postgres-dev
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/postgres/**
+        - environments/dev/postgres*.hcl
+        - environments/dev/postgres*.tfvars
+
+  - name: persistent-env-dev
+    dir: stacks/persistent-env
+    workflow: persistent-env-dev
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/persistent-env/**
+        - environments/dev/persistent-env*.hcl
+        - environments/dev/persistent-env*.tfvars
+
+
+# Staging Environments
+  - name: networking-stg
+    dir: stacks/networking
+    workflow: networking-stg
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/networking/**
+        - environments/stg/networking*.hcl
+        - environments/stg/networking*.tfvars
+    
+  - name: dns-and-alb-stg
+    dir: stacks/dns-and-alb
+    workflow: dns-and-alb-stg
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/dns-and-alb/**
+        - environments/stg/dns-and-alb*.hcl
+        - environments/stg/dns-and-alb*.tfvars
+
+  - name: runners-stg
+    dir: stacks/runners
+    workflow: runners-stg
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/runners/**
+        - environments/stg/runners*.hcl
+        - environments/stg/runners*.tfvars
+
+  - name: atlantis-stg
+    dir: stacks/atlantis
+    workflow: atlantis-stg
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/atlantis/**
+        - environments/stg/atlantis*.hcl
+        - environments/stg/atlantis*.tfvars
+
+  - name: postgres-stg
+    dir: stacks/postgres
+    workflow: postgres-stg
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/postgres/**
+        - environments/stg/postgres*.hcl
+        - environments/stg/postgres*.tfvars
+
+  - name: metabase-db-stg
+    dir: stacks/metabase-db
+    workflow: metabase-db-stg
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/metabase-db/**
+        - environments/stg/metabase-db*.hcl
+        - environments/stg/metabase-db*.tfvars
+
+  - name: metabase-stg
+    dir: stacks/metabase
+    workflow: metabase-stg
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/metabase/**
+        - environments/stg/metabase-backend.hcl
+        - environments/stg/metabase.tfvars
+
+  - name: staging-env
+    dir: stacks/staging-env
+    workflow: staging-env
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/staging-env/**
+        - environments/stg/staging-env*.hcl
+        - environments/stg/staging-env*.tfvars
+
+
+# Live Environments
+  - name: networking-live
+    dir: stacks/networking
+    workflow: networking-live
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/networking/**
+        - environments/live/networking*.hcl
+        - environments/live/networking*.tfvars
+
+  - name: dns-gameplatform-dns
+    dir: stacks/dns-gameplatform-dns
+    workflow: dns-gameplatform-dns
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/dns-gameplatform-dns/**
+        - environments/live/dns-gameplatform-dns*.hcl
+        - environments/live/dns-gameplatform-dns*.tfvars
+
+  - name: runners-live
+    dir: stacks/runners
+    workflow: runners-live
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/runners/**
+        - environments/live/runners*.hcl
+        - environments/live/runners*.tfvars
+
+  - name: atlantis-live
+    dir: stacks/atlantis
+    workflow: atlantis-live
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/atlantis/**
+        - environments/live/atlantis*.hcl
+        - environments/live/atlantis*.tfvars
+
+  - name: postgres-live
+    dir: stacks/postgres
+    workflow: postgres-live
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/postgres/**
+        - environments/live/postgres*.hcl
+        - environments/live/postgres*.tfvars
+
+  - name: metabase-db
+    dir: stacks/metabase-db
+    workflow: metabase-db
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/metabase-db/**
+        - environments/live/metabase-db*.hcl
+        - environments/live/metabase-db*.tfvars
+
+  - name: metabase
+    dir: stacks/metabase
+    workflow: metabase
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/metabase/**
+        - environments/live/metabase-backend.hcl
+        - environments/live/metabase.tfvars
+
+  - name: live-env
+    dir: stacks/live-env
+    workflow: live-env
+    terraform_version: v1.13.1
+    autoplan:
+      enabled: true
+      when_modified:
+        - stacks/live-env/**
+        - environments/live/live-env*.hcl
+        - environments/live/live-env*.tfvars
+
+
+workflows:
+# Development Workflows
+  networking-dev:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/dev/networking-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/dev/networking.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/dev/networking.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/dev/networking-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/dev/networking.tfvars"]
+
+  dns-and-alb-dev:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/dev/dns-and-alb-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/dev/dns-and-alb.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/dev/dns-and-alb.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/dev/dns-and-alb-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/dev/dns-and-alb.tfvars"]
+
+  runners-dev:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/dev/runners-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/dev/runners.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/dev/runners.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/dev/runners-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/dev/runners.tfvars"]
+
+  atlantis-dev:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/dev/atlantis-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/dev/atlantis.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/dev/atlantis.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/dev/atlantis-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/dev/atlantis.tfvars"]
+
+  postgres-dev:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/dev/postgres-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/dev/postgres.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/dev/postgres.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/dev/postgres-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/dev/postgres.tfvars"]
+
+  persistent-env-dev:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/dev/persistent-env-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/dev/persistent-env.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/dev/persistent-env.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/dev/persistent-env-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/dev/persistent-env.tfvars"]
+
+
+# Staging Workflows
+  networking-stg:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/stg/networking-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/stg/networking.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/stg/networking.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/stg/networking-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/stg/networking.tfvars"]
+
+  dns-and-alb-stg:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/stg/dns-and-alb-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/stg/dns-and-alb.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/stg/dns-and-alb.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/stg/dns-and-alb-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/stg/dns-and-alb.tfvars"]
+
+  runners-stg:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/stg/runners-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/stg/runners.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/stg/runners.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/stg/runners-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/stg/runners.tfvars"]
+
+  atlantis-stg:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/stg/atlantis-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/stg/atlantis.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/stg/atlantis.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/stg/atlantis-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/stg/atlantis.tfvars"]
+
+  postgres-stg:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/stg/postgres-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/stg/postgres.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/stg/postgres.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/stg/postgres-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/stg/postgres.tfvars"]
+
+  metabase-db-stg:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/stg/metabase-db-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/stg/metabase-db.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/stg/metabase-db.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/stg/metabase-db-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/stg/metabase-db.tfvars"]
+
+  metabase-stg:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/stg/metabase-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/stg/metabase.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/stg/metabase.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/stg/metabase-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/stg/metabase.tfvars"]
+
+  staging-env:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/stg/staging-env-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/stg/staging-env.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/stg/staging-env.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/stg/staging-env-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/stg/staging-env.tfvars"]
+
+
+# Live Workflows
+  networking-live:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/live/networking-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/live/networking.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/live/networking.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/live/networking-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/live/networking.tfvars"]
+
+  dns-gameplatform-dns:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/live/dns-gameplatform-dns-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/live/dns-gameplatform-dns.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/live/dns-gameplatform-dns.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/live/dns-gameplatform-dns-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/live/dns-gameplatform-dns.tfvars"]
+
+  runners-live:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/live/runners-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/live/runners.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/live/runners.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/live/runners-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/live/runners.tfvars"]
+
+  atlantis-live:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/live/atlantis-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/live/atlantis.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/live/atlantis.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/live/atlantis-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/live/atlantis.tfvars"]
+
+  postgres-live:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/live/postgres-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/live/postgres.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/live/postgres.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/live/postgres-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/live/postgres.tfvars"]
+
+  metabase-db:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/live/metabase-db-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/live/metabase-db.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/live/metabase-db.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/live/metabase-db-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/live/metabase-db.tfvars"]
+
+  metabase:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/live/metabase-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/live/metabase.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/live/metabase.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/live/metabase-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/live/metabase.tfvars"]
+
+  live-env:
+    plan:
+      steps:
+      - init:
+          extra_args: ["-backend-config=../../environments/live/live-env-backend.hcl"]
+      - plan:
+          extra_args: ["-var-file", "../../environments/live/live-env.tfvars"]
+    apply:
+      steps:
+        - apply:
+            extra_args: ["-var-file", "../../environments/live/live-env.tfvars"]
+    import:
+      steps:
+        - init:
+            extra_args: ["-backend-config=../../environments/live/live-env-backend.hcl"]
+        - import:
+            extra_args: ["-var-file", "../../environments/live/live-env.tfvars"]

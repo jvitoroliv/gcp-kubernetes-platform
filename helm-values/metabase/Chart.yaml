@@ -1,0 +1,18 @@
+# Chart.yaml — Chart configuration
+
+# Chart.yaml — Chart configuration
+
+apiVersion: v2
+name: metabase
+description: Metabase analytics platform for GamePlatform
+type: application
+version: 1.0.0
+appVersion: "v0.56.3"
+keywords:
+  - analytics
+  - metabase
+  - bi
+  - dashboard
+maintainers:
+  - name: GamePlatform DevOps Team
+    email: devops@gameplatform.example.com

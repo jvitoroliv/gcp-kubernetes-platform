@@ -1,0 +1,672 @@
+name: 🏗️ Deploy Shared Infrastructure
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The semver of the workflow for automated tagging.
+        default: 1.0.0
+        type: string
+        required: false
+      stack:
+        description: 'Infrastructure stack to deploy (networking, dns-and-alb, atlantis, runners)'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment (dev, stg, live)'
+        required: true
+        type: string
+      action:
+        description: 'Terraform action to perform'
+        required: true
+        type: string
+        # Options: plan, apply, destroy
+      terraform_version:
+        description: 'Terraform version to use'
+        required: false
+        type: string
+        default: '1.5.7'
+      auto_approve:
+        description: 'Auto approve terraform apply (use with caution)'
+        required: false
+        type: boolean
+        default: false
+      use_self_hosted_infracost:
+        description: 'Use self-hosted Infracost Cloud Pricing API (Docker)'
+        required: false
+        type: boolean
+        default: false
+      shared_infrastructure_ref:
+        description: 'Branch/tag/commit of shared infrastructure to deploy'
+        required: false
+        type: string
+        default: 'main'
+      
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        description: 'AWS access key for authentication'
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        description: 'AWS secret key for authentication'
+        required: true
+      LIVE_AWS_ACCESS_KEY_ID:
+        description: 'AWS access key for production environment'
+        required: false
+      LIVE_AWS_SECRET_ACCESS_KEY:
+        description: 'AWS secret key for production environment'
+        required: false
+      INFRACOST_API_KEY:
+        description: 'Infracost API key for cost analysis'
+        required: false
+      ATLANTIS_GITHUB_TOKEN:
+        description: 'GitHub token for Atlantis (required for atlantis stack)'
+        required: false
+      ATLANTIS_WEBHOOK_SECRET:
+        description: 'GitHub webhook secret for Atlantis (required for atlantis stack)'
+        required: false
+
+    outputs:
+      terraform_output:
+        description: 'Terraform output in JSON format'
+        value: ${{ jobs.terraform-deploy.outputs.terraform_output }}
+      deployment_status:
+        description: 'Deployment status (success/failure)'
+        value: ${{ jobs.terraform-deploy.outputs.status }}
+      stack_url:
+        description: 'URL of deployed service (if applicable)'
+        value: ${{ jobs.terraform-deploy.outputs.service_url }}
+
+env:
+  AWS_REGION: ${{ inputs.environment == 'live' && 'sa-east-1' || (inputs.environment == 'stg' && 'us-east-1' || 'us-east-1') }}
+  TF_IN_AUTOMATION: true
+  TF_CLI_ARGS: "-no-color"
+
+jobs:
+  # Validate inputs and prepare environment
+  validate-inputs:
+    name: ✅ Validate Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      stack_valid: ${{ steps.validate.outputs.stack_valid }}
+      environment_valid: ${{ steps.validate.outputs.environment_valid }}
+      action_valid: ${{ steps.validate.outputs.action_valid }}
+      stack_path: ${{ steps.validate.outputs.stack_path }}
+    steps:
+      - name: Validate stack input
+        id: validate
+        run: |
+          # Validate stack
+          case "${{ inputs.stack }}" in
+            networking|dns-and-alb|atlantis|runners|postgres|live-env|persistent-env|staging-env)
+              echo "stack_valid=true" >> $GITHUB_OUTPUT
+              echo "stack_path=stacks/${{ inputs.stack }}" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "❌ Invalid stack: ${{ inputs.stack }}"
+              echo "Valid options: networking, dns-and-alb, atlantis, runners, postgres, live-env, persistent-env, staging-env"
+              echo "stack_valid=false" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+          esac
+          
+          # Validate environment
+          case "${{ inputs.environment }}" in
+            dev|stg|live)
+              echo "environment_valid=true" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "❌ Invalid environment: ${{ inputs.environment }}"
+              echo "Valid options: dev, stg, live"
+              echo "environment_valid=false" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+          esac
+          
+          # Validate action
+          case "${{ inputs.action }}" in
+            plan|apply|destroy)
+              echo "action_valid=true" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "❌ Invalid action: ${{ inputs.action }}"
+              echo "Valid options: plan, apply, destroy"
+              echo "action_valid=false" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+          esac
+          
+          echo "✅ All inputs validated successfully"
+
+  # Main terraform deployment job
+  terraform-deploy:
+    name: 🚀 Terraform ${{ inputs.action }} - ${{ inputs.stack }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    if: needs.validate-inputs.outputs.stack_valid == 'true' && needs.validate-inputs.outputs.environment_valid == 'true' && needs.validate-inputs.outputs.action_valid == 'true'
+    
+    outputs:
+      terraform_output: ${{ steps.terraform-output.outputs.output }}
+      status: ${{ steps.deployment-status.outputs.status }}
+      service_url: ${{ steps.extract-url.outputs.service_url }}
+    
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ needs.validate-inputs.outputs.stack_path }}
+    
+    steps:
+      - name: 📥 Checkout shared infrastructure
+        uses: actions/checkout@v4
+        with:
+          repository: example-gamedev-org/gameplatform-shared-infrastructure
+          ref: ${{ inputs.shared_infrastructure_ref }}
+          token: ${{ secrets.ATLANTIS_GITHUB_TOKEN }}
+          path: .
+
+      - name: 🏗️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+          terraform_wrapper: false  # Disable wrapper for clean JSON output
+
+      - name: 🔐 Configure Git credentials for Terraform modules
+        env:
+          TOKEN: ${{ secrets.ATLANTIS_GITHUB_TOKEN }}
+        run: |
+          set -e
+          if [ -z "${TOKEN}" ]; then
+            echo "ATLANTIS_GITHUB_TOKEN ausente; configure no workflow chamador."
+            exit 1
+          fi
+
+          # 1) Remove the extraheader that actions/checkout adds (it uses the GITHUB_TOKEN)
+          git config --global --unset-all http.https://github.com/.extraheader || true
+          git config --system --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          git config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+
+          # 2) Optional: Set our extraheader with the org's PAT
+          AUTH=$(printf "x-access-token:${TOKEN}" | base64 -w 0 2>/dev/null || printf "x-access-token:${TOKEN}" | base64)
+          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${AUTH}"
+
+          # 3) (keeps) rewrites so that any https://github.com/... URL uses PAT
+          echo "::add-mask::${TOKEN}"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/example-gamedev-org/".insteadOf "https://github.com/example-gamedev-org/"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+
+          echo "✅ Git credentials configured"
+          git config --global --list | sed 's/'"${TOKEN}"'/***MASKED***'/g | grep -E 'extraheader|url\.https://x-access-token:.*@github\.com'
+
+      - name: 🔎 Verify module repository access
+        id: verify-modules
+        env:
+          TOKEN: ${{ secrets.ATLANTIS_GITHUB_TOKEN }}
+        run: |
+          set -e
+          echo "🔎 Checking access to example-gamedev-org/gameplatform-terraform..."
+          if git ls-remote "https://x-access-token:${TOKEN}@github.com/example-gamedev-org/gameplatform-terraform.git" -h > /dev/null 2>&1; then
+            echo "✅ Access to gameplatform-terraform confirmed"
+          else
+            echo "❌ Unable to access gameplatform-terraform with current credentials"
+            echo "➡️ Ensure ATLANTIS_GITHUB_TOKEN has repo read access and SSO is authorized."
+            exit 1
+          fi
+
+      - name: 🔍 Debug AWS Credentials Selection
+        run: |
+          echo "🔍 Environment: ${{ inputs.environment }}"
+          echo "🔍 AWS_REGION: ${{ env.AWS_REGION }}"
+          echo "🔍 Condition Result (live): ${{ inputs.environment == 'live' }}"
+          if [ "${{ inputs.environment }}" == "live" ]; then
+            echo "🔍 Using LIVE credentials"
+            echo "🔍 LIVE_AWS_ACCESS_KEY_ID: ${{ secrets.LIVE_AWS_ACCESS_KEY_ID }}"
+            echo "🔍 LIVE_AWS_SECRET_ACCESS_KEY: ${{ secrets.LIVE_AWS_SECRET_ACCESS_KEY }}"
+          else
+            echo "🔍 Using DEV credentials"
+            echo "🔍 AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}"
+            echo "🔍 AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          fi
+
+      - name: ☁️ Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 🔍 Verify AWS Identity
+        run: |
+          echo "🔍 AWS Identity Check:"
+          aws sts get-caller-identity
+
+      
+
+      - name: 🛡️ Setup tfsec
+        run: |
+          curl -sSLo tfsec https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64
+          chmod +x tfsec
+          sudo mv tfsec /usr/local/bin/
+
+      - name: 🔧 Prepare Terraform variables
+        id: prepare-vars
+        run: |
+          # Debug: List current directory and check paths
+          echo "Current working directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
+          echo "Stack path: ${{ needs.validate-inputs.outputs.stack_path }}"
+          echo "Looking for tfvars file at: ../../environments/${{ inputs.environment }}/${{ inputs.stack }}.tfvars"
+          ls -la ../../environments/${{ inputs.environment }}/ || echo "Directory not found"
+          
+          # Copy environment-specific variables
+          if [ -f "../../environments/${{ inputs.environment }}/${{ inputs.stack }}.tfvars" ]; then
+            cp "../../environments/${{ inputs.environment }}/${{ inputs.stack }}.tfvars" terraform.tfvars
+            echo "✅ Successfully copied tfvars file"
+          else
+            echo "❌ Tfvars file not found at: ../../environments/${{ inputs.environment }}/${{ inputs.stack }}.tfvars"
+            echo "Available files:"
+            find ../.. -name "*.tfvars" -type f | head -10
+            exit 1
+          fi
+          
+          # Add sensitive variables for atlantis stack
+          if [ "${{ inputs.stack }}" = "atlantis" ]; then
+            # Ensure the file ends with a newline to avoid concatenation issues
+            printf '\n' >> terraform.tfvars
+            if [ -n "${{ secrets.ATLANTIS_GITHUB_TOKEN }}" ]; then
+              echo 'github_token = "${{ secrets.ATLANTIS_GITHUB_TOKEN }}"' >> terraform.tfvars
+            fi
+            if [ -n "${{ secrets.ATLANTIS_WEBHOOK_SECRET }}" ]; then
+              echo 'github_webhook_secret = "${{ secrets.ATLANTIS_WEBHOOK_SECRET }}"' >> terraform.tfvars
+            fi
+          fi
+          
+          echo "✅ Terraform variables prepared"
+
+      - name: 🔧 Create AWS Resources (if needed)
+        id: create-resources
+        continue-on-error: true
+        run: |
+          echo "🛠️ Ensuring required AWS resources exist..."
+          echo "🔍 Current AWS Identity in Resource Creation:"
+          aws sts get-caller-identity
+
+          # Extract backend config
+          BACKEND_CONFIG="../../environments/${{ inputs.environment }}/${{ inputs.stack }}-backend.hcl"
+          BUCKET=$(grep '^bucket' "$BACKEND_CONFIG" | cut -d'"' -f2 | tr -d ' ')
+          DYNAMODB_TABLE=$(grep '^dynamodb_table' "$BACKEND_CONFIG" | cut -d'"' -f2 | tr -d ' ')
+          REGION=$(grep '^region' "$BACKEND_CONFIG" | cut -d'"' -f2 | tr -d ' ')
+
+          echo "📦 Bucket: $BUCKET"
+          echo "🗂️ DynamoDB: $DYNAMODB_TABLE"
+          echo "🌎 Region: $REGION"
+
+          # Create S3 bucket if it doesn't exist
+          if ! aws s3 ls "s3://$BUCKET" --region "$REGION" >/dev/null 2>&1; then
+            echo "🪣 Creating S3 bucket..."
+            aws s3 mb "s3://$BUCKET" --region "$REGION" || echo "Bucket creation may have failed"
+
+            # Enable versioning
+            aws s3api put-bucket-versioning \
+              --bucket "$BUCKET" \
+              --versioning-configuration Status=Enabled \
+              --region "$REGION" || echo "Versioning setup may have failed"
+
+            echo "✅ S3 bucket created"
+          else
+            echo "✅ S3 bucket exists"
+          fi
+
+          # Create DynamoDB table if it doesn't exist
+          if ! aws dynamodb describe-table --table-name "$DYNAMODB_TABLE" --region "$REGION" >/dev/null 2>&1; then
+            echo "🗂️ Creating DynamoDB table..."
+            aws dynamodb create-table \
+              --table-name "$DYNAMODB_TABLE" \
+              --attribute-definitions AttributeName=LockID,AttributeType=S \
+              --key-schema AttributeName=LockID,KeyType=HASH \
+              --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+              --region "$REGION" || echo "DynamoDB creation may have failed"
+
+            echo "⏳ Waiting for DynamoDB table to be active..."
+            aws dynamodb wait table-exists --table-name "$DYNAMODB_TABLE" --region "$REGION" || echo "Wait may have timed out"
+
+            echo "✅ DynamoDB table created"
+          else
+            echo "✅ DynamoDB table exists"
+          fi
+
+      - name: 🚀 Terraform Init (with fallback)
+        id: init
+        run: |
+          BACKEND_CONFIG="../../environments/${{ inputs.environment }}/${{ inputs.stack }}-backend.hcl"
+
+          echo "🔄 Attempting Terraform init..."
+
+          # Try terraform init with backend
+          if terraform init -backend-config="$BACKEND_CONFIG" -upgrade; then
+            echo "✅ Terraform init with backend successful"
+            echo "init_status=success" >> $GITHUB_OUTPUT
+            echo "backend_type=remote" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Remote backend failed, falling back to local backend"
+            echo "🔄 Using local backend for this deployment..."
+
+            # Initialize with local backend
+            terraform init -migrate-state || terraform init
+
+            echo "✅ Terraform init with local backend successful"
+            echo "init_status=success" >> $GITHUB_OUTPUT
+            echo "backend_type=local" >> $GITHUB_OUTPUT
+
+            # Add warning about local state
+            echo "::warning::Using local backend - state will not be shared between runs"
+          fi
+
+      - name: 🔍 Terraform Validate
+        id: validate
+        run: |
+          terraform validate
+          echo "validate_status=success" >> $GITHUB_OUTPUT
+
+      - name: 📋 Terraform Plan
+        id: plan
+        run: |
+          echo "🔍 Running Terraform plan for ${{ inputs.stack }}..."
+          set +e
+          terraform plan \
+            -input=false \
+            -detailed-exitcode \
+            -out=tfplan \
+            2>&1 | tee plan_output.txt
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          # Save plan exit code for later use
+          echo "plan_exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Show file size info only (detailed output goes to deployment summary)
+          LINES=$(wc -l < plan_output.txt 2>/dev/null || echo "0")
+          echo "📊 Plan generated: $LINES total lines (detailed output in artifacts)"
+
+          # Determine plan status
+          case $PLAN_EXIT_CODE in
+            0)
+              echo "📝 No changes detected"
+              echo "plan_status=no_changes" >> $GITHUB_OUTPUT
+              ;;
+            1)
+              echo "❌ Terraform plan failed"
+              echo "plan_status=failed" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+            2)
+              echo "📝 Changes detected and planned successfully"
+              echo "plan_status=changes_planned" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: 🛡️ Security Analysis (tfsec)
+        id: security
+        if: steps.plan.outputs.plan_status == 'changes_planned' || inputs.action == 'plan'
+        continue-on-error: true
+        run: |
+          echo "🛡️ Running security analysis..."
+          # Generate JSON output for parsing
+          tfsec . --format json --out tfsec-results.json || echo "Security issues found"
+          # Generate table output for display  
+          tfsec . --out tfsec-results.txt || echo "Security issues found"
+          
+          if [ -f tfsec-results.json ]; then
+            CRITICAL=$(jq '[.results[] | select(.severity == "CRITICAL")] | length' tfsec-results.json || echo "0")
+            HIGH=$(jq '[.results[] | select(.severity == "HIGH")] | length' tfsec-results.json || echo "0")
+            
+            echo "security_critical=$CRITICAL" >> $GITHUB_OUTPUT
+            echo "security_high=$HIGH" >> $GITHUB_OUTPUT
+            
+            if [ "$CRITICAL" -gt 0 ] && [ "${{ inputs.environment }}" = "live" ]; then
+              echo "🔴 Critical security issues found in production deployment!"
+              echo "security_status=critical" >> $GITHUB_OUTPUT
+              # Don't fail the job, but highlight the issues
+            else
+              echo "security_status=acceptable" >> $GITHUB_OUTPUT
+            fi
+            
+            echo "📊 Security scan: Critical=$CRITICAL, High=$HIGH"
+          fi
+
+      - name: 💰 Cost Analysis (fallback)
+        id: cost
+        if: steps.plan.outputs.plan_status == 'changes_planned' || inputs.action == 'plan'
+        continue-on-error: true
+        run: |
+          echo "💰 Running cost analysis..."
+
+          # Always produce a plan JSON for analysis (used by Infracost or fallback)
+          terraform show -json tfplan > plan.json
+
+          # Fallback estimator only (no external API)
+          NAT_COUNT=$(jq '[.resource_changes[] | select(.type=="aws_nat_gateway")] | length' plan.json 2>/dev/null || echo 0)
+          ALB_COUNT=$(jq '[.resource_changes[] | select(.type=="aws_lb")] | length' plan.json 2>/dev/null || echo 0)
+          NAT_MONTHLY=$(awk -v n=${NAT_COUNT:-0} 'BEGIN { printf "%.2f", n*32.40 }')
+          ALB_MONTHLY=$(awk -v n=${ALB_COUNT:-0} 'BEGIN { printf "%.2f", n*16.20 }')
+          TOTAL=$(awk -v a=${NAT_MONTHLY:-0} -v b=${ALB_MONTHLY:-0} 'BEGIN { printf "%.2f", a+b }')
+
+          echo "monthly_cost=$TOTAL" >> $GITHUB_OUTPUT
+
+          {
+            echo "# 💰 Fallback Cost Estimate (no API)"
+            echo ""
+            echo "This is a rough baseline (us-east-1) using heuristic prices."
+            echo "Actual monthly cost depends on usage (data transfer, LCUs, logs, etc.)."
+            echo ""
+            echo "- NAT Gateways: ${NAT_COUNT} × $32.40 = $${NAT_MONTHLY}"
+            echo "- Application Load Balancers: ${ALB_COUNT} × $16.20 = $${ALB_MONTHLY}"
+            echo ""
+            echo "**Estimated Monthly Total (baseline): $${TOTAL}**"
+          } > infracost-results.txt
+
+          echo "✅ Fallback cost estimate generated"
+
+      - name: 🧾 Cost Summary
+        if: steps.plan.outputs.plan_status == 'changes_planned' || inputs.action == 'plan'
+        run: |
+          echo "## 💰 Cost Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode**: Fallback estimator (baseline only)" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.cost.outputs.monthly_cost }}" ]; then
+            echo "**Estimated Monthly Cost**: $${{ steps.cost.outputs.monthly_cost }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f infracost-results.txt ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            sed -n '1,200p' infracost-results.txt >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 📊 Generate Summary Report
+        id: summary
+        if: inputs.action == 'plan'
+        run: |
+          echo "📊 Generating deployment summary..."
+          
+          cat > deployment-summary.md << 'EOF'
+          # 🏗️ Infrastructure Deployment Summary
+          
+          **Stack**: `${{ inputs.stack }}`  
+          **Environment**: `${{ inputs.environment }}`  
+          **Action**: `${{ inputs.action }}`  
+          **Timestamp**: $(date '+%Y-%m-%d %H:%M:%S UTC')
+          
+          ## 📋 Terraform Plan Results
+          EOF
+          
+          if [ "${{ steps.plan.outputs.plan_status }}" = "no_changes" ]; then
+            echo "✅ **No changes detected** - Infrastructure is up to date" >> deployment-summary.md
+          elif [ "${{ steps.plan.outputs.plan_status }}" = "changes_planned" ]; then
+            echo "📝 **Changes planned** - Review plan output below" >> deployment-summary.md
+            echo "" >> deployment-summary.md
+            echo "## 📄 Plan Output" >> deployment-summary.md
+            echo '```' >> deployment-summary.md
+            head -50 plan_output.txt >> deployment-summary.md
+            echo '```' >> deployment-summary.md
+          fi
+          
+          # Add security results if available
+          if [ -f tfsec-results.txt ]; then
+            echo "" >> deployment-summary.md
+            echo "## 🛡️ Security Analysis" >> deployment-summary.md
+            echo "- Critical issues: ${{ steps.security.outputs.security_critical || 0 }}" >> deployment-summary.md
+            echo "- High issues: ${{ steps.security.outputs.security_high || 0 }}" >> deployment-summary.md
+          fi
+          
+          # Add cost results if available  
+          if [ -f infracost-results.txt ]; then
+            echo "" >> deployment-summary.md
+            echo "## 💰 Cost Analysis" >> deployment-summary.md
+            echo "**Monthly estimate**: \$${{ steps.cost.outputs.monthly_cost || 'N/A' }}" >> deployment-summary.md
+          fi
+          
+          echo "✅ Summary report generated"
+
+      - name: 🚀 Terraform Apply
+        id: apply
+        if: inputs.action == 'apply' && (steps.plan.outputs.plan_status == 'changes_planned' || inputs.auto_approve)
+        run: |
+          echo "🚀 Applying Terraform changes..."
+          
+          if [ "${{ inputs.auto_approve }}" = "true" ]; then
+            terraform apply -input=false -auto-approve tfplan
+          else
+            terraform apply -input=false tfplan
+          fi
+          
+          echo "apply_status=success" >> $GITHUB_OUTPUT
+          echo "✅ Terraform apply completed successfully"
+
+      - name: 🗑️ Terraform Destroy
+        id: destroy
+        if: inputs.action == 'destroy'
+        run: |
+          echo "🗑️ Destroying infrastructure..."
+          echo "⚠️ WARNING: This will destroy all resources for ${{ inputs.stack }} in ${{ inputs.environment }}"
+          
+          if [ "${{ inputs.auto_approve }}" = "true" ]; then
+            terraform destroy -input=false -auto-approve
+          else
+            terraform destroy -input=false
+          fi
+          
+          echo "destroy_status=success" >> $GITHUB_OUTPUT
+          echo "✅ Terraform destroy completed successfully"
+
+      - name: 📤 Extract Terraform Output
+        id: terraform-output
+        if: inputs.action == 'apply' && steps.apply.outputs.apply_status == 'success'
+        continue-on-error: true
+        run: |
+          echo "📤 Extracting Terraform outputs..."
+          terraform output -json > terraform-outputs.json
+          
+          # Set output for other jobs
+          OUTPUT=$(cat terraform-outputs.json | jq -c .)
+          echo "output=$OUTPUT" >> $GITHUB_OUTPUT
+          
+          echo "✅ Terraform outputs extracted"
+
+      - name: 🔗 Extract Service URL
+        id: extract-url
+        if: inputs.action == 'apply' && steps.apply.outputs.apply_status == 'success'
+        continue-on-error: true
+        run: |
+          # Extract relevant service URL based on stack type
+          case "${{ inputs.stack }}" in
+            atlantis)
+              URL=$(terraform output -raw atlantis_url 2>/dev/null || echo "")
+              ;;
+            dns-and-alb)
+              URL=$(terraform output -raw shared_alb_dns_name 2>/dev/null | sed 's/^/https:\/\//' || echo "")
+              ;;
+            *)
+              URL=""
+              ;;
+          esac
+          
+          echo "service_url=$URL" >> $GITHUB_OUTPUT
+          if [ -n "$URL" ]; then
+            echo "🔗 Service URL: $URL"
+          fi
+
+      - name: 📊 Set Deployment Status
+        id: deployment-status
+        if: always()
+        run: |
+          case "${{ inputs.action }}" in
+            plan)
+              if [ "${{ steps.plan.outputs.plan_status }}" = "failed" ]; then
+                echo "status=failed" >> $GITHUB_OUTPUT
+              else
+                echo "status=success" >> $GITHUB_OUTPUT
+              fi
+              ;;
+            apply)
+              if [ "${{ steps.apply.outputs.apply_status }}" = "success" ]; then
+                echo "status=success" >> $GITHUB_OUTPUT
+              else
+                echo "status=failed" >> $GITHUB_OUTPUT
+              fi
+              ;;
+            destroy)
+              if [ "${{ steps.destroy.outputs.destroy_status }}" = "success" ]; then
+                echo "status=success" >> $GITHUB_OUTPUT
+              else
+                echo "status=failed" >> $GITHUB_OUTPUT
+              fi
+              ;;
+          esac
+
+      - name: 📁 Upload Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terraform-${{ inputs.stack }}-${{ inputs.environment }}-${{ inputs.action }}
+          path: |
+            ${{ needs.validate-inputs.outputs.stack_path }}/plan_output.txt
+            ${{ needs.validate-inputs.outputs.stack_path }}/deployment-summary.md
+            ${{ needs.validate-inputs.outputs.stack_path }}/terraform-outputs.json
+            ${{ needs.validate-inputs.outputs.stack_path }}/tfsec-results.*
+            ${{ needs.validate-inputs.outputs.stack_path }}/infracost-results.*
+          retention-days: 30
+
+  # Summary job with deployment results
+  deployment-summary:
+    name: 📋 Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, terraform-deploy]
+    if: always()
+    steps:
+      - name: 📊 Generate Final Summary
+        run: |
+          echo "## 🏗️ Shared Infrastructure Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Stack**: ${{ inputs.stack }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Action**: ${{ inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ needs.terraform-deploy.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.terraform-deploy.outputs.service_url }}" != "" ]; then
+            echo "**Service URL**: ${{ needs.terraform-deploy.outputs.service_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          case "${{ needs.terraform-deploy.outputs.status }}" in
+            success)
+              echo "✅ **Deployment completed successfully**" >> $GITHUB_STEP_SUMMARY
+              ;;
+            failed)
+              echo "❌ **Deployment failed** - Check logs for details" >> $GITHUB_STEP_SUMMARY
+              ;;
+            *)
+              echo "⚪ **Deployment status unknown**" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac

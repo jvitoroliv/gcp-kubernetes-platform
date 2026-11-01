@@ -1,0 +1,18 @@
+# Chart.yaml
+# Chart configuration
+# Maintained by: Platform Engineering
+
+# Chart.yaml — Chart configuration
+
+apiVersion: v2
+name: ais
+description: AI Image Service for Platform Platform
+type: application
+version: 1.0.0
+appVersion: "3.11"
+keywords:
+  - microservice
+  - ais
+maintainers:
+  - name: Platform DevOps Team
+    email: devops@example.com

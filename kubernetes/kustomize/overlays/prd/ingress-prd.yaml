@@ -1,0 +1,82 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gameplatform-ingress
+  namespace: gameplatform-prd
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "project-prd-ip"
+    networking.gke.io/managed-certificates: "project-prd-cert"
+    kubernetes.io/ingress.allow-http: "false"
+spec:
+  rules:
+  - host: nakama.gameplatform.example.com
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: nakama
+            port:
+              number: 7350
+  - host: app.gameplatform.example.com
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: lobby
+            port:
+              number: 3000
+  - host: lobby-backend.gameplatform.example.com
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: lobby-backend
+            port:
+              number: 3001
+  - host: afs.gameplatform.example.com
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: afs
+            port:
+              number: 8080
+  - host: ahsat.gameplatform.example.com
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: ahsat
+            port:
+              number: 8080
+  - host: aes.gameplatform.example.com
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: aes
+            port:
+              number: 1988
+  - host: ais.gameplatform.example.com
+    http:
+      paths:
+      - path: /*
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: ais
+            port:
+              number: 5050

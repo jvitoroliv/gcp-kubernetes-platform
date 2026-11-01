@@ -1,0 +1,12 @@
+# Configure kube-dns to forward queries for specific domains to Cloud DNS
+# This allows pods to resolve private Cloud DNS zones (prd.gameplatform, dev.gameplatform, etc.)
+
+stubDomains:
+  # PRD private zone - forward to GCP metadata server (resolves Cloud DNS zones)
+  "prd.gameplatform": ["169.254.169.254"]
+  # DEV private zone
+  "dev.gameplatform": ["169.254.169.254"]
+  # STG private zone
+  "stg.gameplatform": ["169.254.169.254"]
+  # Runners private zone
+  "runners.gameplatform": ["169.254.169.254"]

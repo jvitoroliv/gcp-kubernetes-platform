@@ -1,0 +1,48 @@
+apiVersion: v2
+name: game-platform
+description: Umbrella chart for complete GamePlatform Platform deployment
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - gameplatform
+  - platform
+  - microservices
+  - vr
+  - gaming
+maintainers:
+  - name: GamePlatform DevOps Team
+    email: devops@gameplatform.example.com
+dependencies:
+  - name: nakama
+    version: 1.0.0
+    repository: "file://../services/nakama"
+    condition: nakama.enabled
+  - name: lobby
+    version: 1.0.0
+    repository: "file://../services/lobby"
+    condition: lobby.enabled
+  - name: lobby-backend
+    version: 1.0.0
+    repository: "file://../services/lobby-backend"
+    condition: lobby-backend.enabled
+  - name: afs
+    version: 1.0.0
+    repository: "file://../services/afs"
+    condition: afs.enabled
+  - name: ahsat
+    version: 1.0.0
+    repository: "file://../services/ahsat"
+    condition: ahsat.enabled
+  - name: aes
+    version: 1.0.0
+    repository: "file://../services/aes"
+    condition: aes.enabled
+  - name: ais
+    version: 1.0.0
+    repository: "file://../services/ais"
+    condition: ais.enabled
+  - name: aps
+    version: 1.0.0
+    repository: "file://../services/aps"
+    condition: aps.enabled

@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reloader-dev
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/example-gamedev-org/platform-kubernetes-infrastructure.git
+    targetRevision: main
+    path: charts/reloader
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    name: project-dev-workloads
+    namespace: reloader
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

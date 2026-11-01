@@ -1,0 +1,17 @@
+# Chart.yaml
+# Chart configuration
+
+apiVersion: v2
+name: aps
+description: Platform Payment Service (APS) - Flask API for payment processing with Yuno
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - microservice
+  - aps
+  - payment
+  - yuno
+maintainers:
+  - name: Platform DevOps Team
+    email: devops@example.com

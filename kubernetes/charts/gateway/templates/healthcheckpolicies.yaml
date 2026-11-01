@@ -1,0 +1,26 @@
+{{- /*
+HealthCheckPolicy - Custom health check paths for GKE Gateway backends
+Each service needs its own health check configuration
+*/ -}}
+{{- range $name, $policy := .Values.healthCheckPolicies }}
+---
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  default:
+    checkIntervalSec: {{ $policy.checkIntervalSec | default 15 }}
+    timeoutSec: {{ $policy.timeoutSec | default 5 }}
+    healthyThreshold: {{ $policy.healthyThreshold | default 2 }}
+    unhealthyThreshold: {{ $policy.unhealthyThreshold | default 2 }}
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: {{ $policy.path }}
+  targetRef:
+    group: ""
+    kind: Service
+    name: {{ $policy.serviceName }}
+{{- end }}

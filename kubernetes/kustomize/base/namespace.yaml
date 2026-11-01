@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gameplatform
+  labels:
+    name: gameplatform
+    app.kubernetes.io/name: gameplatform
+    app.kubernetes.io/part-of: game-platform

@@ -1,0 +1,149 @@
+replicaCount: 1
+
+image:
+  repository: us-east1-docker.pkg.dev/project-nonprod-env/project-dev-images/nakama
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "nakama"
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+
+# SSL/TLS configuration for direct port access (TCP passthrough)
+ssl:
+  enabled: false
+  secretName: ""
+
+service:
+  type: ClusterIP
+  ports:
+    http: 7350
+    grpc: 7349
+    console: 7351
+    metrics: 9100
+  annotations: {}
+
+ingress:
+  enabled: true
+  className: "gce"
+  annotations:
+    kubernetes.io/ingress.allow-http: "false"
+  hosts:
+    - host: nakama.dev.gameplatform
+      paths:
+        - path: /*
+          pathType: ImplementationSpecific
+          port: 7350
+  tls: []
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 7350
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 7350
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+# Database configuration
+database:
+  secretName: postgres-credentials
+  connectionName: "project-nonprod-env:us-east1:postgres-dev"
+  cloudSqlProxy:
+    enabled: true
+    image: gcr.io/cloudsql-docker/gce-proxy:latest
+
+# Environment variables
+env: []
+
+# Environment variables from ConfigMap and Secrets
+envFrom:
+  - configMapRef:
+      name: nakama-config
+  - secretRef:
+      name: nakama-secrets
+
+# External Secrets configuration (GCP Secret Manager)
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: gcp-secret-manager
+    kind: ClusterSecretStore
+  secrets:
+    # Database - from Terraform stack 04-database
+    - secretKey: NAKAMA_DATABASE_ADDRESS
+      remoteKey: project-dev-db-nakama-connection
+    - secretKey: DB_HOST
+      remoteKey: project-dev-db-host
+    - secretKey: DB_PASSWORD
+      remoteKey: project-dev-db-nakama-password
+    # Nakama keys - manual secrets
+    - secretKey: NAKAMA_HTTP_KEY
+      remoteKey: project-dev-nakama-http-key
+    - secretKey: NAKAMA_SERVER_KEY
+      remoteKey: project-dev-nakama-server-key
+    - secretKey: AES_KEY
+      remoteKey: project-dev-aes-encryption-key
+
+# Service monitor for Prometheus
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  path: /
+  labels: {}
